@@ -9,7 +9,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import account, api, config, launch, vault
+from . import account, api, config, launch
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MARKETPLACE = "ctr-local"
@@ -97,7 +97,7 @@ def cmd_uninstall(args, paths: config.Paths) -> int:
         proc = _run(exe, ["plugin", "marketplace", "remove", MARKETPLACE])
         _show(proc)
         ok = ok and proc.returncode == 0
-    if paths.root.exists() and (args.yes or _confirm(f"同时删除本机绑定信息和设置（{paths.root}）？输入 Y 确认：")):
+    if paths.root.exists() and (args.yes or _confirm(f"同时删除本机设置和日志（{paths.root}）？输入 Y 确认：")):
         shutil.rmtree(paths.root, ignore_errors=True)
         print("已删除。")
     print("卸载完成，请重启 Codex App。" if ok else "卸载未完全成功，请查看上面的输出。")
@@ -134,24 +134,13 @@ def cmd_config(args, paths: config.Paths) -> int:
             return 1
         cfg.timeout = args.timeout
     config.save(paths, cfg)
-    print(f"已保存：{cfg.base_url}，超时 {cfg.timeout:g} 秒。地址变化后需要重新绑定账号。")
-    return 0
-
-
-def cmd_unbind(args, paths: config.Paths) -> int:
-    vault.clear(paths.binding)
-    print("已解除本机绑定。下次打开充值窗口时需要重新确认账号。")
+    print(f"已保存：{cfg.base_url}，超时 {cfg.timeout:g} 秒。")
     return 0
 
 
 def cmd_status(args, paths: config.Paths) -> int:
     cfg = config.load(paths)
     print(f"充值服务地址：{_describe(cfg.base_url)}")
-    stored = vault.load(paths.binding)
-    if stored and stored.get("base_url") == cfg.base_url:
-        print(f"已绑定：{stored.get('email')}（{stored.get('bound_at')}）")
-    else:
-        print("尚未绑定（首次打开充值窗口时确认）。")
     exe = _kernel()
     if exe is None:
         return 1
@@ -180,16 +169,15 @@ def main(argv: list[str] | None = None, paths: config.Paths | None = None) -> in
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("install", help="用 Codex App 内核安装插件")
     p = sub.add_parser("uninstall", help="卸载插件")
-    p.add_argument("--yes", action="store_true", help="同时删除本机绑定信息，不再询问")
+    p.add_argument("--yes", action="store_true", help="同时删除本机设置和日志，不再询问")
     sub.add_parser("open", help="打开充值窗口")
     p = sub.add_parser("config", help="查看或设置充值服务地址")
     p.add_argument("--base-url")
     p.add_argument("--timeout", type=float)
-    sub.add_parser("unbind", help="解除本机绑定")
-    sub.add_parser("status", help="查看安装、Hook 信任与绑定状态")
+    sub.add_parser("status", help="查看安装与 Hook 信任状态")
     args = parser.parse_args(argv)
     handler = {"install": cmd_install, "uninstall": cmd_uninstall, "open": cmd_open, "config": cmd_config,
-               "unbind": cmd_unbind, "status": cmd_status}[args.command]
+               "status": cmd_status}[args.command]
     return handler(args, paths or config.Paths.default())
 
 

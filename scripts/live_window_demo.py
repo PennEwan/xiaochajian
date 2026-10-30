@@ -5,7 +5,7 @@
 
 Uses the real window (worker threads), the real flow and the real `account/read` through the
 App kernel; only the backend is the mock, and the shown email is masked. Data goes to a
-temporary CDKR_HOME, so the user's own binding is untouched.
+temporary CDKR_HOME, so the user's own settings are untouched.
 """
 from __future__ import annotations
 
@@ -65,29 +65,20 @@ def main() -> int:
                         "cdk_box": app.cdk_var.get(), "shot": path.name, "size": [w, h],
                         "region_h": window.region_height(app.root)})
 
-    def go_down() -> None:  # same binding, backend now unreachable
+    def go_down() -> None:  # same account, backend now unreachable
         recharge.config = config.Config(base_url=f"http://127.0.0.1:{closed_port()}", timeout=5)
-        recharge._binding["base_url"] = recharge.config.base_url
-
-    def go_up() -> None:
-        recharge.config = cfg
-        recharge._binding = None
-        recharge.load()
 
     steps = [
         ("first-open", None),
-        ("bound", lambda: app.button.invoke()),
         ("redeem-ok", lambda: (app.cdk_var.set("TEST-OK01"), app.button.invoke())),
         ("redeem-duplicate", lambda: (app.cdk_var.set("TEST-OK01"), app.button.invoke())),
         ("redeem-invalid", lambda: (app.cdk_var.set("WRONG-CODE-123"), app.button.invoke())),
         ("redeem-expired", lambda: (app.cdk_var.set("TEST-EXPD"), app.button.invoke())),
         ("network-down", lambda: (go_down(), app.cdk_var.set("TEST-OK02"), app.button.invoke())),
-        ("login-expired", lambda: (go_up(), backend.post("/_mock/expire-bindings"),
-                                   app.cdk_var.set("TEST-OK02"), app.button.invoke())),
     ]
 
     def idle() -> bool:
-        return str(app.button["state"]) == "normal"
+        return not app._busy  # the button stays off after a success: the CDK box is empty again
 
     def run_step(i: int = 0) -> None:
         if not idle():

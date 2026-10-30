@@ -13,6 +13,9 @@ import subprocess
 from pathlib import Path
 
 _VERSION = re.compile(r"codex-cli\s+(\S+)")
+# Callers include windowless processes (the control panel, the update checker): without this
+# every console child — powershell, codex.exe — would flash a console window on screen.
+NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
 def _bin_root() -> Path | None:
@@ -23,7 +26,7 @@ def _bin_root() -> Path | None:
 def version_of(exe: Path) -> str | None:
     try:
         proc = subprocess.run([str(exe), "--version"], capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", timeout=30)
+                              encoding="utf-8", errors="replace", timeout=30, creationflags=NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return None
     m = _VERSION.search(proc.stdout + proc.stderr)
@@ -41,7 +44,8 @@ def _running_kernels() -> list[Path]:
         proc = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
              "Get-Process codex -ErrorAction SilentlyContinue | ForEach-Object { $_.Path }"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+            creationflags=NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return []
     return [Path(line.strip()) for line in proc.stdout.splitlines() if line.strip()]
@@ -68,4 +72,4 @@ def find_app_kernel() -> tuple[Path, str | None] | None:
 
 def run(exe: Path, args: list[str], timeout: int = 180) -> subprocess.CompletedProcess:
     return subprocess.run([str(exe), *args], capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=timeout)
+                          errors="replace", timeout=timeout, creationflags=NO_WINDOW)

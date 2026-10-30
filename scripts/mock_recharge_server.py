@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 OK_CDKS = {f"TEST-OK0{i}" for i in range(1, 6)}
 SLOW, PROC, PROC_FAIL, FAIL, EXPIRED = "TEST-SLOW", "TEST-PROC", "TEST-PFAL", "TEST-FAIL", "TEST-EXPD"
+WAIT = "TEST-WAIT"  # submissions: answers after 2 s, long enough to watch the loading state
 PRODUCT = "ChatGPT Plus 1 个月（模拟）"
 
 
@@ -38,6 +39,7 @@ class State:
         self.paths: list[str] = []
         self.client_headers: list[str] = []
         self.authorizations: list[str] = []
+        self.submissions: list[dict] = []           # request bodies of /v1/submissions (memory only)
 
     def consumed(self, cdk: str) -> int:
         return sum(1 for (c, _), r in self.by_key.items() if c == cdk and r["status"] == "succeeded")
@@ -123,6 +125,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._bind(body)
         if self.path == "/v1/redemptions":
             return self._redeem(body)
+        if self.path == "/v1/submissions":
+            return self._submit(body)
         self._error(404, "not_found")
 
     def do_GET(self):
@@ -132,12 +136,12 @@ class Handler(BaseHTTPRequestHandler):
         if not self.path.startswith(prefix):
             return self._error(404, "not_found")
         account = self._account_for_token()
-        if account is None:
+        if account is None and self.headers.get("Authorization"):
             return self._error(401, "binding_invalid", "绑定已失效，请重新绑定")
         rid = self.path[len(prefix):]
         with self.state.lock:
             rec = self.state.by_id.get(rid)
-            if rec is None or rec["_account"] != account:
+            if rec is None or account not in (None, rec["_account"]):
                 return self._error(404, "not_found")
             if rec["status"] == "processing" and rec["_cdk"] in (PROC, PROC_FAIL):
                 self.state.polls[rid] = self.state.polls.get(rid, 0) + 1
@@ -160,12 +164,18 @@ class Handler(BaseHTTPRequestHandler):
                          "expires_at": None})
 
     def _redeem(self, body: dict):
-        account = self._account_for_token()
-        if account is None:
-            return self._error(401, "binding_invalid", "绑定已失效，请重新绑定")
-        cdk, target = body.get("cdk"), body.get("chatgpt_account_id")
-        if target != account:
-            return self._error(403, "account_mismatch", "绑定的账号与请求的账号不一致")
+        cdk, target = body.get("cdk"), body.get("account")
+        if target is None:  # legacy callers, including the native helper
+            target = body.get("chatgpt_account_id")
+        if self.headers.get("Authorization"):  # legacy: the native 小助手 still binds first
+            account = self._account_for_token()
+            if account is None:
+                return self._error(401, "binding_invalid", "绑定已失效，请重新绑定")
+            if target != account:
+                return self._error(403, "account_mismatch", "绑定的账号与请求的账号不一致")
+        elif not isinstance(target, str) or not target:
+            return self._error(400, "invalid_account", "账号信息不完整")
+        account = target
         if not isinstance(cdk, str) or not cdk:
             return self._error(400, "cdk_invalid", "CDK 无效")
         with self.state.lock:
@@ -196,6 +206,18 @@ class Handler(BaseHTTPRequestHandler):
         with self.state.lock:
             out = self._public(rec, replayed=False)
         self._send(201, out)
+
+    def _submit(self, body: dict):
+        code = body.get("code")
+        with self.state.lock:
+            self.state.submissions.append(body)
+        if code == WAIT:
+            time.sleep(2)
+        elif code == FAIL:
+            return self._error(503, "server_error")
+        elif code not in OK_CDKS:
+            return self._error(400, "invalid_code", "订单号或兑换码无效")
+        self._send(201, {"submission_id": "sub_" + secrets.token_hex(8), "status": "received"})
 
     @staticmethod
     def _public(rec: dict, replayed: bool) -> dict:
@@ -228,7 +250,8 @@ def main() -> int:
     server = make_server(args.host, args.port, verbose=True)
     print(f"模拟充值后台：http://{args.host}:{args.port}  （Ctrl+C 退出）")
     print("测试 CDK：TEST-OK01..05 成功 / TEST-SLOW 超时 / TEST-PROC 处理中 / TEST-PFAL 处理中后失败 / TEST-FAIL 履约失败 / "
-          "TEST-EXPD 过期 / 其他无效")
+          "TEST-EXPD 过期 / 其他无效（兑换直接带账号，无需绑定；/v1/bindings 只为原生小助手保留）")
+    print("提交（CDKR_SUBMIT_MOCK=1）：TEST-OK01..05 成功 / TEST-WAIT 2 秒后成功 / TEST-FAIL 服务错误 / 其他无效")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -1,0 +1,6 @@
+{
+  "recharge_base_url": "http://127.0.0.1:18787",
+  "mock": true,
+  "sync_base_url": "http://127.0.0.1:8080",
+  "recording_default_on": true
+}

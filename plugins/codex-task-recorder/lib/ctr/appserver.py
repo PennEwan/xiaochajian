@@ -16,8 +16,10 @@ from pathlib import Path
 
 class AppServer:
     def __init__(self, exe: Path, cwd: str, log_path: Path | None = None):
+        from .kernel import NO_WINDOW  # no console flash when called from a windowless process
+
         self.proc = subprocess.Popen([str(exe), "app-server"], cwd=cwd, stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
         self._next_id = 0
         self._responses: dict[int, dict] = {}
         self._cond = threading.Condition()
@@ -107,5 +109,7 @@ class AppServer:
             self.proc.wait(timeout=10)
         except Exception:
             self.proc.kill()
+        # stdout is left to the reader thread: app-server's own children (a marketplace `git fetch`,
+        # say) inherit the pipe, so closing it here could wait for them indefinitely.
         if self._log:
             self._log.close()

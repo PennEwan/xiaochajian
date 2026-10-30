@@ -1,0 +1,157 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/hook.py\"",
+            "commandWindows": "& \"${PLUGIN_ROOT}\\runtime\\python.exe\" \"${PLUGIN_ROOT}\\hooks\\hook.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -29,10 +29,6 @@ class Paths:
         return self.root / "config.json"
 
     @property
-    def binding(self) -> Path:
-        return self.root / "binding.bin"
-
-    @property
     def log(self) -> Path:
         return self.root / "cdkr.log"
 

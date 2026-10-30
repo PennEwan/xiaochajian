@@ -1,4 +1,8 @@
-"""Build ctr.event/v1 records: redaction, truncation and completeness in one place."""
+"""Build ctr.event/v2 records: redaction, truncation and completeness in one place.
+
+v2 = v1 + `seq` (per-session capture order, set by store.SessionHandle.append) and
+`model` (the model in effect for the event, set by the hook handler and transcript reader).
+"""
 from __future__ import annotations
 
 import hashlib
@@ -10,7 +14,7 @@ from collections import Counter
 from . import timeutil
 from .redact import redact_obj
 
-SCHEMA = "ctr.event/v1"
+SCHEMA = "ctr.event/v2"
 MAX_FIELD_CHARS = 64 * 1024
 
 COMPLETE, PARTIAL, TRUNCATED, UNAVAILABLE = "complete", "partial", "truncated", "unavailable"
@@ -37,7 +41,7 @@ def make_event(kind: str, *, session_id: str, source_type: str, source_name: str
                granularity: str | None = None, missing: list[str] | None = None,
                status: str | None = None, note: str = "", meta: dict | None = None,
                transcript_offset: int | None = None,
-               extra_redactions: Counter | None = None) -> dict:
+               extra_redactions: Counter | None = None, model: str | None = None) -> dict:
     redacted, counts = redact_obj(data)
     if extra_redactions:
         counts.update(extra_redactions)
@@ -53,6 +57,7 @@ def make_event(kind: str, *, session_id: str, source_type: str, source_name: str
     return {
         "schema": SCHEMA,
         "event_id": str(uuid.uuid4()),
+        "seq": None,  # set when appended to the session file
         "kind": kind,
         "recorded_at": timeutil.iso(timeutil.now()),
         "source_ts": source_ts,
@@ -62,6 +67,7 @@ def make_event(kind: str, *, session_id: str, source_type: str, source_name: str
         "tool_use_id": tool_use_id,
         "item_id": item_id,
         "agent_id": agent_id,
+        "model": model,
         "relations": relations or {},
         "source": {
             "type": source_type,

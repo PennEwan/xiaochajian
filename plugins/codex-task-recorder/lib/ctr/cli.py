@@ -168,12 +168,20 @@ def cmd_enable(args, paths: Paths) -> int:
         if not _consent(paths, args.i_consent):
             print("已取消，未开启记录。")
             return 1
-    elif not _confirm(f"将重新开启记录（{_scope_text(args.cwd or st.scope_cwds)}，数据保存在 {paths.root}）。输入 Y 确认："):
+    elif not _confirm(f"将重新开启记录（{_scope_text(args.cwd or st.scope_cwds)}，数据保存在 {paths.root}"
+                      f"{_sync_hint(paths)}）。输入 Y 确认："):
         print("已取消，未开启记录。")
         return 1
     st = state.enable(paths.state, timeutil.now(), scope_cwds=args.cwd or None, install_dir=str(REPO_ROOT))
     print(f"● 已开启记录。范围：{_scope_text(st.scope_cwds)}")
     return 0
+
+
+def _sync_hint(paths: Paths) -> str:
+    from .sync import state as sstate
+    from .sync.config import SyncPaths
+
+    return "；数据同步开启中，新内容会同步到后台" if sstate.is_on(sstate.load(SyncPaths(paths))) else ""
 
 
 def _scope_text(scope_cwds: list[str] | None) -> str:
@@ -183,6 +191,8 @@ def _scope_text(scope_cwds: list[str] | None) -> str:
 def cmd_disable(args, paths: Paths) -> int:
     st = state.disable(paths.state, timeutil.now())
     print("○ 已停止记录。之后的会话内容不会再被记录。" if st else "记录从未开启，无需停止。")
+    if _sync_hint(paths):
+        print("  数据同步仍开启，但不会再有新内容可上传。暂停或撤销同步：双击「暂停同步.cmd」/「撤销同步.cmd」。")
     return 0
 
 
@@ -214,6 +224,9 @@ def cmd_status(args, paths: Paths) -> int:
     if args.verbose:
         for kind, n in kinds.most_common():
             print(f"  {kind}: {n}")
+    from .sync.cli import summary_line
+
+    print(summary_line(paths))
     _print_hook_trust()
     return 0
 
@@ -248,13 +261,47 @@ def cmd_install(args, paths: Paths) -> int:
     return 0 if install_plugin() else 1
 
 
+def _uninstall_sync(args, paths: Paths) -> bool:
+    """Pause sync; offer to revoke it and delete the uploaded data. True while a remote
+    revocation is still waiting for the network (its request lives in the sync directory)."""
+    from .sync import launcher, vault
+    from .sync import state as sstate
+    from .sync.cli import report_remote_ops
+    from .sync.config import SyncPaths
+
+    sp = SyncPaths(paths)
+    st = sstate.load(sp)
+    if sstate.is_on(st):
+        sstate.pause(sp, timeutil.now())
+        print("已暂停数据同步。")
+    if vault.load(sp.device) and (args.revoke_sync or _confirm(
+            "是否同时撤销数据同步授权，并删除后台已上传的数据？输入 Y 撤销并删除（其他任意键保留）：")):
+        sstate.revoke(sp, timeutil.now(), delete_remote=True)
+        report_remote_ops(paths, delete=True)
+    st = sstate.load(sp)
+    if not sstate.wants_worker(st):  # let the uploader exit before its files and plugin go away
+        launcher.wait_until_stopped(sp)
+    return bool(st and st.pending_ops)
+
+
 def cmd_uninstall(args, paths: Paths) -> int:
     state.disable(paths.state, timeutil.now())
+    sync_pending = _uninstall_sync(args, paths)
     ok = uninstall_plugin()
     print("插件已卸载，记录已停止。" if ok else "卸载命令未全部成功，记录已停止。")
     if paths.root.exists() and (args.purge or _confirm(f"是否同时删除已记录的数据（{paths.root}）？输入 Y 删除：")):
-        shutil.rmtree(paths.root, ignore_errors=True)
-        print("已删除本地记录数据。")
+        if sync_pending:  # keep the queued revocation so it can still reach the backend
+            for child in paths.root.iterdir():
+                if child.name == "sync":
+                    continue
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+            print("已删除本地记录数据（保留 sync 目录，以便联网后送达撤销请求）。")
+        else:
+            shutil.rmtree(paths.root, ignore_errors=True)
+            print("已删除本地记录数据。")
     print("如 Codex App 正在运行，请重启它。")
     return 0 if ok else 1
 
@@ -315,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("install", help="仅安装插件").set_defaults(func=cmd_install)
     p = sub.add_parser("uninstall", help="卸载插件（卸载.cmd）")
     p.add_argument("--purge", action="store_true", help="同时删除已记录的数据")
+    p.add_argument("--revoke-sync", action="store_true", help="同时撤销数据同步并删除后台数据")
     p.set_defaults(func=cmd_uninstall)
     p = sub.add_parser("purge", help="删除已记录的数据")
     p.add_argument("--session")
@@ -324,6 +372,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("report", help="生成事件覆盖率报告（会先执行 flush）")
     p.add_argument("--copy-to", help="另存一份 Markdown 到该路径")
     p.set_defaults(func=cmd_report)
+    from .sync.cli import register as register_sync
+
+    register_sync(sub.add_parser("sync", help="数据同步：enable / pause / status / revoke / config / run"))
     args = parser.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(errors="replace")

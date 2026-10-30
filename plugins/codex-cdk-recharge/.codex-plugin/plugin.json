@@ -14,7 +14,7 @@
   "interface": {
     "displayName": "Codex CDK 充值",
     "shortDescription": "在输入框发送 /充值，弹出小窗口输入 CDK 完成充值",
-    "longDescription": "在 Codex 输入框单独发送 /充值，本插件的 Hook 会打开一个本地小窗口，并拦下这条消息（不发给模型）。CDK 只在小窗口中输入，不会进入 Codex 对话、本插件日志或任何埋点。充值账号通过 Codex 官方接口读取（只有邮箱、套餐和账号 ID，不含登录令牌），首次需在窗口中确认绑定。本插件不读取 auth.json，不上传任何 ChatGPT 登录凭证。注意：该 Hook 会在每次发送消息时运行，约增加 0.4 秒；不需要时可在此禁用插件。",
+    "longDescription": "在 Codex 输入框单独发送 /充值，本插件的 Hook 会打开一个本地小窗口，并拦下这条消息（不发给模型）。用户在窗口中输入充值账号和 CDK，二者只发送给充值服务；不会进入 Codex 对话、本插件日志或任何埋点。本插件不读取 auth.json，不上传任何 ChatGPT 登录凭证。注意：该 Hook 会在每次发送消息时运行，约增加 0.4 秒；不需要时可在此禁用插件。",
     "developerName": "Codex CDK Recharge",
     "category": "Productivity",
     "capabilities": [

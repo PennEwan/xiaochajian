@@ -1,4 +1,3 @@
-import os
 import shutil
 import socket
 import tempfile
@@ -6,7 +5,7 @@ import time
 import unittest
 from pathlib import Path
 
-from cdkr import config, flow, vault
+from cdkr import config, flow
 from cdkr.flow import Account, AccountError
 
 from cdkr_helpers import MockBackend
@@ -30,7 +29,6 @@ class FakeCodex:
         return self.account
 
 
-@unittest.skipUnless(os.name == "nt", "binding storage uses DPAPI")
 class FlowCase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="cdkr-flow-"))
@@ -49,36 +47,29 @@ class FlowCase(unittest.TestCase):
 
     def ready(self, **kw):
         r = self.make(**kw)
-        self.assertEqual(r.load().state, flow.NEED_BIND)
-        self.assertEqual(r.bind().state, flow.READY)
+        self.assertEqual(r.load().state, flow.READY)
         return r
 
 
-class BindingTest(FlowCase):
-    def test_first_use_needs_confirmation_then_binds(self):
+class AccountTest(FlowCase):
+    def test_codex_account_is_the_target_without_binding(self):
         r = self.make()
         view = r.load()
-        self.assertEqual((view.state, view.email, view.plan), (flow.NEED_BIND, "alice@example.com", "Free"))
-        self.assertEqual(r.bind().state, flow.READY)
-        stored = vault.load(self.paths.binding)
-        self.assertEqual(stored["chatgpt_account_id"], ACCOUNT.account_id)
-        self.assertEqual(self.make().load().state, flow.READY)
+        self.assertEqual((view.state, view.email, view.plan), (flow.READY, "alice@example.com", "Free"))
+        self.assertIn("上面这个 ChatGPT 账号", view.message)
+        self.assertEqual(r.redeem("TEST-OK01").kind, flow.SUCCEEDED)
+        self.assertIn(("TEST-OK01", ACCOUNT.account_id), self.backend.state.by_key)
+        self.assertEqual(self.backend.state.paths, ["/v1/redemptions"])  # no /v1/bindings first
+        self.assertEqual(self.backend.state.authorizations, [""])        # and no token of any kind
+        self.assertEqual([f.name for f in self.tmp.iterdir()], ["cdkr.log"])  # nothing else kept
 
-    def test_codex_account_change_requires_rebinding(self):
-        self.ready()
+    def test_another_codex_account_is_ready_at_once(self):
+        self.ready().redeem("TEST-OK01")
         r = self.make(codex=FakeCodex(OTHER))
         view = r.load()
-        self.assertEqual((view.state, view.bound_email), (flow.ACCOUNT_CHANGED, "alice@example.com"))
-        self.assertEqual(r.bind().state, flow.READY)
-        self.assertEqual(vault.load(self.paths.binding)["chatgpt_account_id"], OTHER.account_id)
-
-    def test_binding_for_another_backend_is_ignored(self):
-        self.ready()
-        other = MockBackend()
-        try:
-            self.assertEqual(self.make(base_url=other.url).load().state, flow.NEED_BIND)
-        finally:
-            other.stop()
+        self.assertEqual((view.state, view.email), (flow.READY, "bob@example.com"))
+        self.assertEqual(r.redeem("TEST-OK02").kind, flow.SUCCEEDED)
+        self.assertIn(("TEST-OK02", OTHER.account_id), self.backend.state.by_key)
 
     def test_unconfigured_backend_disables_recharge_without_reading_account(self):
         cfg = config.Config()
@@ -96,14 +87,6 @@ class BindingTest(FlowCase):
             view = self.make(codex=FakeCodex(error=kind)).load()
             self.assertEqual(view.state, flow.NO_ACCOUNT, kind)
             self.assertEqual(view.message, flow.ACCOUNT_MESSAGES[kind])
-
-    def test_bind_with_backend_down_explains_and_stays_unbound(self):
-        r = self.make(base_url=f"http://127.0.0.1:{closed_port()}", timeout=2)
-        r.load()
-        view = r.bind()
-        self.assertEqual(view.state, flow.NEED_BIND)
-        self.assertIn("网络", view.message)
-        self.assertIsNone(vault.load(self.paths.binding))
 
 
 class RedeemTest(FlowCase):
@@ -142,7 +125,6 @@ class RedeemTest(FlowCase):
 
     def test_cdk_used_by_someone_else(self):
         self.ready().redeem("TEST-OK03")
-        vault.clear(self.paths.binding)
         other = self.ready(codex=FakeCodex(OTHER))
         self.assertEqual(other.redeem("TEST-OK03").kind, flow.CDK_USED)
 
@@ -162,7 +144,6 @@ class RedeemTest(FlowCase):
     def test_backend_unreachable_from_the_start_is_not_sent(self):
         r = self.ready()
         r.config = config.Config(base_url=f"http://127.0.0.1:{closed_port()}", timeout=2)
-        r._binding["base_url"] = r.config.base_url  # same binding, backend now down
         out = r.redeem("TEST-OK04")
         self.assertEqual(out.kind, flow.NOT_SENT)
         self.assertIn("未使用", out.message)
@@ -171,7 +152,6 @@ class RedeemTest(FlowCase):
         r = self.ready(retry_delays=(0, 0))
         with silent_server() as url:
             r.config = config.Config(base_url=url, timeout=0.3)
-            r._binding["base_url"] = url
             out = r.redeem("TEST-OK04")
         self.assertEqual(out.kind, flow.UNKNOWN)
         self.assertIn("不会重复扣除", out.message)
@@ -184,7 +164,6 @@ class RedeemTest(FlowCase):
         self.addCleanup(server.__exit__)
         r = self.ready(retry_delays=(0,), sleep=lambda s: server.sock.close())
         r.config = config.Config(base_url=url, timeout=0.3)
-        r._binding["base_url"] = url
         out = r.redeem("TEST-OK04")
         self.assertEqual(out.kind, flow.UNKNOWN)
         self.assertNotIn("未使用", out.message)
@@ -205,24 +184,12 @@ class RedeemTest(FlowCase):
         self.assertEqual(out.kind, flow.FULFILLMENT_FAILED)
         self.assertIn("未被扣除", out.message)
 
-    def test_binding_expiring_while_polling(self):
-        r = self.ready(poll_interval=0, sleep=lambda s: self.backend.post("/_mock/expire-bindings"))
-        self.assertEqual(r.redeem("TEST-PROC").kind, flow.BINDING_INVALID)
-        self.assertIsNone(vault.load(self.paths.binding))
-
-    def test_account_mismatch_drops_binding(self):
+    def test_account_the_backend_rejects(self):
         r = self.ready()
-        r.account = OTHER  # Codex switched accounts after the window had loaded
-        self.assertEqual(r.redeem("TEST-OK04").kind, flow.ACCOUNT_MISMATCH)
-        self.assertIsNone(vault.load(self.paths.binding))
-
-    def test_expired_binding_asks_to_rebind(self):
-        r = self.ready()
-        self.backend.post("/_mock/expire-bindings")
+        r.account = Account("acct-cccc", "", None)
         out = r.redeem("TEST-OK04")
-        self.assertEqual(out.kind, flow.BINDING_INVALID)
-        self.assertIsNone(vault.load(self.paths.binding))
-        self.assertEqual(r.load().state, flow.NEED_BIND)
+        self.assertEqual(out.kind, flow.INVALID_ACCOUNT)
+        self.assertIn("不接受这个账号信息", out.message)
 
     def test_server_error_and_rate_limit(self):
         r = self.ready()
@@ -264,19 +231,20 @@ class RedeemTest(FlowCase):
         r.redeem("TEST-OK04")
         self.assertNotIn("secretcdkvalue", self.paths.log.read_text(encoding="utf-8"))
 
-    def test_unbound_window_cannot_redeem(self):
-        r = self.make()
+    def test_no_redemption_before_the_account_is_read(self):
+        self.assertEqual(self.make().redeem("TEST-OK05").kind, flow.NOT_READY)
+        r = self.make(codex=FakeCodex(error=flow.NOT_LOGGED_IN))
         r.load()
         self.assertEqual(r.redeem("TEST-OK05").kind, flow.NOT_READY)
+        self.assertEqual(self.backend.state.paths, [])
 
-    def test_log_never_contains_cdk_token_or_email(self):
+    def test_log_never_contains_cdk_account_or_email(self):
         r = self.ready()
         for cdk in ["TEST-OK05", "NOPE-SECRET-77", "TEST-FAIL"]:
             r.redeem(cdk)
-        token = vault.load(self.paths.binding)["binding_token"]
         log = self.paths.log.read_text(encoding="utf-8")
         self.assertIn("redeem", log)
-        for secret in ["TEST-OK05", "NOPE-SECRET-77", "TEST-FAIL", token, "alice@example.com", "acct-aaaa"]:
+        for secret in ["TEST-OK05", "NOPE-SECRET-77", "TEST-FAIL", "alice@example.com", "acct-aaaa"]:
             self.assertNotIn(secret, log)
 
 

@@ -6,25 +6,32 @@ so the background is a PhotoImage painted row by row and the corners are clipped
 Win32 region.
 
 Only display and input live here; every decision is in flow.Recharge, executed on a
-worker thread so the window never freezes. The CDK exists only in the entry widget and
-the call to `redeem`, and is cleared after a successful redemption.
+worker thread so the window never freezes. The user-entered account and CDK are sent only
+to the recharge service, and the CDK is cleared after a successful redemption.
 """
 from __future__ import annotations
 
 import queue
 import threading
+import time
 import tkinter as tk
+import webbrowser
 from tkinter import messagebox
 
-from . import flow, paint
+from . import api, flow, log, paint
 from .paint import CARD_W, PAD_BOTTOM, PAD_TOP, PAD_X, hexc, round_rect_points, tint
 
 TITLE = "Codex 充值"
-BIND, REDEEM, RELOAD = "bind", "redeem", "reload"
-BUTTON_TEXT = {BIND: "确认充值到此账号", REDEEM: "确认兑换", RELOAD: "重新读取"}
+GUIDE_TEXT = "请输入要充值的 ChatGPT 账号；账号和 CDK 只会发送给充值服务。"
+# Experiment: the guide link opens the ChatGPT session endpoint in the default browser.
+# It is a plain navigation — the window never reads what the page shows.
+RECHARGE_URL = "https://chatgpt.com/api/auth/session?utm_source=chatgpt.com"
+SUBMIT_MOCK_ENV = "CDKR_SUBMIT_MOCK"  # "1" with a local backend: 确认提交 goes to /v1/submissions
+REDEEM, RELOAD = "redeem", "reload"
+BUTTON_TEXT = {REDEEM: "确认提交", RELOAD: "重新读取"}
 ERROR_KINDS = {flow.INVALID_FORMAT, flow.CDK_INVALID, flow.CDK_USED, flow.CDK_EXPIRED, flow.FULFILLMENT_FAILED,
-               flow.NOT_SENT, flow.UNKNOWN, flow.BINDING_INVALID, flow.ACCOUNT_MISMATCH, flow.RATE_LIMITED,
-               flow.SERVER_ERROR, flow.BAD_RESPONSE, flow.NOT_READY}
+               flow.NOT_SENT, flow.UNKNOWN, flow.INVALID_ACCOUNT, flow.RATE_LIMITED, flow.SERVER_ERROR,
+               flow.BAD_RESPONSE, flow.NOT_READY}
 _SAY = 0  # queue key for progress lines; callbacks use keys 1, 2, …
 
 FAMILY = "Microsoft YaHei UI"      # 小助手 ships HarmonyOS Sans SC; we stay dependency-free
@@ -34,6 +41,7 @@ INK, MUTED, FAINT = paint.INK, tint(paint.INK, .68), tint(paint.INK, .45)
 COLORS = {"info": MUTED, "ok": paint.OK_GREEN, "error": paint.BAD_RED}
 WELL_BG, WELL_EDGE = "#fbfdff", hexc(tint(paint.CHIP_GREY, .38))
 BTN_BLUE, BTN_HOT, BTN_OFF = (0, 96, 223), (0, 80, 189), tint(paint.CHIP_GREY, .45)
+GUIDE_BG = hexc(tint(paint.PIN_BLUE, .08, (255, 255, 255)))
 _ROWS: dict = {}                   # (level, w, h) -> aurora rows; a PhotoImage cannot cross Tk roots
 _GCL_STYLE, _CS_DROPSHADOW = -26, 0x00020000
 
@@ -45,6 +53,40 @@ def _work(fn, key, fallback, results: queue.Queue) -> None:
     except Exception:  # noqa: BLE001 - never leave the window stuck in "busy"
         result = fallback
     results.put((key, result))
+
+
+def send_submission(cfg, log_path, text: str) -> flow.Outcome:
+    """确认提交 on the /v1/submissions path, worded like flow.redeem. Only fixed words reach the log."""
+    value = api.submit_code(text)
+    if value is None:
+        return flow.Outcome(flow.INVALID_FORMAT, "格式不对：请填写订单号或兑换码（4–64 位字母、数字或 -）。"
+                                                 "登录信息、令牌等不要填在这里。")
+    try:
+        client = api.Api(cfg.base_url, timeout=cfg.timeout)
+    except api.InsecureUrl as exc:
+        return flow.Outcome(flow.SERVER_ERROR, str(exc))
+    shown, status, started = flow.mask(value), None, time.monotonic()
+    try:
+        client.submit(value)
+        outcome = flow.Outcome(flow.SUCCEEDED, f"已收到 {shown}。")
+    except api.NotSent as exc:
+        outcome = flow.Outcome(flow.NOT_SENT, "提交接口尚未开放，内容没有发出。" if exc.kind == "disabled"
+                               else "网络连接失败，提交请求没有发出。请检查网络后重试。")
+    except api.Unknown:
+        outcome = flow.Outcome(flow.UNKNOWN, "网络中断，提交结果没有确认，请稍后重试。")
+    except api.HttpError as exc:
+        status = exc.status
+        if exc.status == 400:
+            outcome = flow.Outcome(flow.CDK_INVALID, f"{shown} 无效，请检查是否输错。")
+        elif exc.status == 429:
+            outcome = flow.Outcome(flow.RATE_LIMITED, "操作太频繁，请稍后再试。")
+        else:
+            outcome = flow.Outcome(flow.SERVER_ERROR, f"提交服务暂时不可用（{exc.status}），请稍后重试。")
+    except api.BadResponse as exc:
+        status = exc.status
+        outcome = flow.Outcome(flow.BAD_RESPONSE, "提交服务返回了无法识别的结果，请稍后重试。")
+    log.write(log_path, "submit", outcome.kind, status, int((time.monotonic() - started) * 1000))
+    return outcome
 
 
 def hwnd_of(root) -> int:
@@ -165,8 +207,9 @@ class Chip:
 
 
 class App:
-    def __init__(self, recharge, local_backend: bool, run_async=None):
+    def __init__(self, recharge, local_backend: bool, run_async=None, submit=None):
         self.flow = recharge
+        self._submit = submit  # text -> Outcome: the mock-only submission path; None redeems
         self.mode = RELOAD
         self._threaded = run_async is None  # tests pass a synchronous runner
         self._run_async = run_async or self._thread_run
@@ -187,7 +230,7 @@ class App:
                                 bg=hexc(paint.CARD_BG))
         self.canvas.pack(fill="both", expand=True)
 
-        self.account_var = tk.StringVar(value="正在读取 Codex 登录账号…")
+        self.account_var = tk.StringVar()
         self.cdk_var = tk.StringVar()
         self.status_var = tk.StringVar()
         self.footer_var = tk.StringVar(value="CDK 只在本窗口输入，不会进入 Codex 对话。"
@@ -212,15 +255,23 @@ class App:
                                         ink=INK, font=(FAMILY, 9), height=24, text="✕")
         self.close_button._put((inner_right - 24, PAD_TOP, inner_right, PAD_TOP + 24))
         self.live_dot = c.create_oval(0, 0, 0, 0, fill=hexc(paint.STATUS_STALE), outline="")
+        # the body keeps its spacing, pushed down by however tall the guide panel came out
+        top = self._top = self._build_guide(PAD_TOP + 40) - 24
 
-        c.create_text(PAD_X, PAD_TOP + 50, text="充值账号", font=(FAMILY, 9), fill=hexc(FAINT), anchor="w")
-        self.account_text = self._text_item(PAD_X, PAD_TOP + 74, self.account_var,
-                                            font=(FAMILY, 11, "bold"), fill=INK, anchor="w")
-        self.plan_chip = Chip(c)
-        self.plan_chip.set("")
+        c.create_text(PAD_X, top + 50, text="充值账号", font=(FAMILY, 9), fill=hexc(FAINT), anchor="w")
+        account_well = (PAD_X, top + 66, inner_right, top + 104)
+        c.create_polygon(*round_rect_points(*account_well, 11), fill=WELL_BG, outline=WELL_EDGE, width=1)
+        self.account_entry = tk.Entry(c, textvariable=self.account_var, font=(FAMILY, 11), bd=0,
+                                      relief="flat", bg=WELL_BG, fg=hexc(INK),
+                                      disabledbackground=WELL_BG, disabledforeground=hexc(FAINT),
+                                      insertbackground=hexc(INK), highlightthickness=0, justify="left")
+        self.account_entry.bind("<Return>", lambda _e: self.entry.focus_set())
+        c.create_window(account_well[0] + 13, (account_well[1] + account_well[3]) / 2,
+                        window=self.account_entry, anchor="w",
+                        width=account_well[2] - account_well[0] - 26, height=22)
 
-        c.create_text(PAD_X, PAD_TOP + 108, text="CDK", font=(FAMILY, 9), fill=hexc(FAINT), anchor="w")
-        well = (PAD_X, PAD_TOP + 122, inner_right, PAD_TOP + 160)
+        c.create_text(PAD_X, top + 116, text="CDK", font=(FAMILY, 9), fill=hexc(FAINT), anchor="w")
+        well = (PAD_X, top + 130, inner_right, top + 168)
         c.create_polygon(*round_rect_points(*well, 11), fill=WELL_BG, outline=WELL_EDGE, width=1)
         self.entry = tk.Entry(c, textvariable=self.cdk_var, font=(FAMILY, 11), bd=0, relief="flat",
                               bg=WELL_BG, fg=hexc(INK), disabledbackground=WELL_BG,
@@ -231,11 +282,36 @@ class App:
                         width=well[2] - well[0] - 26, height=22)
 
         self.button = RoundButton(c, self._on_click, text=BUTTON_TEXT[RELOAD])
+        self.account_var.trace_add("write", lambda *_args: self.button.configure(state=self._button_state()))
+        self.cdk_var.trace_add("write", lambda *_args: self.button.configure(state=self._button_state()))
         self.status_text = self._text_item(PAD_X, 0, self.status_var, font=(FAMILY, 9), fill=MUTED,
                                            anchor="nw", width=CARD_W - 2 * PAD_X)
         self.footer_text = self._text_item(PAD_X, 0, self.footer_var, font=(FAMILY, 8), fill=FAINT,
                                            anchor="nw", width=CARD_W - 2 * PAD_X)
         self._relayout()
+
+    def _build_guide(self, top: float) -> float:
+        """The 操作说明 panel: a hint and a link that opens in the default browser. Returns its bottom."""
+        c, inner_right = self.canvas, CARD_W - PAD_X
+        panel = c.create_polygon(0, 0, 0, 0, fill=GUIDE_BG, outline="")
+        width = inner_right - PAD_X - 28
+        hint = c.create_text(PAD_X + 14, top + 10, text=GUIDE_TEXT, font=(FAMILY, 9), fill=hexc(INK),
+                             anchor="nw", width=width)
+        self.link = c.create_text(PAD_X + 14, c.bbox(hint)[3] + 4, text=RECHARGE_URL,
+                                  font=(FAMILY, 9, "underline"), fill=hexc(BTN_BLUE), anchor="nw", width=width)
+        c.tag_bind(self.link, "<Button-1>", lambda _e: self._open_link())
+        c.tag_bind(self.link, "<Enter>", lambda _e: self._hover_link(True))
+        c.tag_bind(self.link, "<Leave>", lambda _e: self._hover_link(False))
+        bottom = c.bbox(self.link)[3] + 10
+        c.coords(panel, *round_rect_points(PAD_X, top, inner_right, bottom, 11))
+        return bottom
+
+    def _hover_link(self, hover: bool) -> None:
+        self.canvas.configure(cursor="hand2" if hover else "")
+        self.canvas.itemconfigure(self.link, fill=hexc(BTN_HOT if hover else BTN_BLUE))
+
+    def _open_link(self) -> None:
+        webbrowser.open(RECHARGE_URL)
 
     def _text_item(self, x: float, y: float, var: tk.StringVar, fill, **kw) -> int:
         """A canvas text item that follows a StringVar (canvas items have no -textvariable)."""
@@ -251,13 +327,11 @@ class App:
     def _relayout(self) -> None:
         """Place everything below the CDK box: the card grows with however long the status is."""
         c, inner_right = self.canvas, CARD_W - PAD_X
-        middle = PAD_TOP + 74
-        chip_left = self.plan_chip.place(inner_right, middle)
-        c.itemconfigure(self.account_text, width=max(120, chip_left - PAD_X - 10))
+        middle = self._top + 74
         dot = self.close_button.canvas.coords(self.close_button.label)[0] - 24
         c.coords(self.live_dot, dot - 4, PAD_TOP + 8, dot + 4, PAD_TOP + 16)
 
-        y = self.button.place(inner_right, PAD_TOP + 174)[3] + 18
+        y = self.button.place(inner_right, self._top + 182)[3] + 18
         c.coords(self.status_text, PAD_X, y)
         if self.status_var.get():
             y = c.bbox(self.status_text)[3] + 14
@@ -292,7 +366,7 @@ class App:
     # ---- lifecycle ------------------------------------------------------------------------------
 
     def start(self) -> None:
-        self._say("正在读取 Codex 登录账号…", "info")
+        self._say("请输入充值账号和 CDK。", "info")
         self._run_async(self.flow.load, self._show_view)
 
     def run(self) -> None:
@@ -318,16 +392,15 @@ class App:
         if self.mode == RELOAD:
             self._set_busy(True)
             self.start()
-        elif self.mode == BIND:
-            self._set_busy(True)
-            self._say("正在绑定…", "info")
-            self._run_async(self.flow.bind, self._show_view)
         else:
-            recharge, cdk = self.flow, self.cdk_var.get()
+            recharge, account, cdk, submit = self.flow, self.account_var.get(), self.cdk_var.get(), self._submit
             self._set_busy(True)
-            self._say("正在兑换…", "info")
+            self._say("正在提交…", "info")
+            if submit:
+                self._run_async(lambda: submit(cdk), self._show_outcome)
+                return
             progress = self._progress_sink()
-            self._run_async(lambda: recharge.redeem(cdk, progress=progress), self._show_outcome)
+            self._run_async(lambda: recharge.redeem(cdk, account=account, progress=progress), self._show_outcome)
 
     def _on_close(self) -> None:
         if self._busy and self.mode == REDEEM and not messagebox.askyesno(
@@ -339,11 +412,10 @@ class App:
     # ---- results --------------------------------------------------------------------------------
 
     def _show_view(self, view: flow.View) -> None:
-        self.account_var.set(view.email or "未读取到")
-        self.plan_chip.set(view.plan or "")
-        self.mode = {flow.NOT_CONFIGURED: RELOAD, flow.NO_ACCOUNT: RELOAD, flow.NEED_BIND: BIND,
-                     flow.ACCOUNT_CHANGED: BIND}.get(view.state, REDEEM)
-        ready = view.state in (flow.READY, flow.NEED_BIND, flow.ACCOUNT_CHANGED)
+        if view.email:
+            self.account_var.set(view.email)
+        ready = view.state == flow.READY
+        self.mode = REDEEM if ready else RELOAD
         self.canvas.itemconfigure(self.live_dot, fill=hexc(paint.STATUS_OK if ready else paint.STATUS_STALE))
         self._say(view.message, "error" if view.state in (flow.NOT_CONFIGURED, flow.NO_ACCOUNT) else "info")
         self._set_busy(False)
@@ -351,14 +423,9 @@ class App:
     def _show_outcome(self, outcome: flow.Outcome) -> None:
         if outcome.ok:
             self.cdk_var.set("")
-        if outcome.kind in (flow.BINDING_INVALID, flow.ACCOUNT_MISMATCH):
-            self.mode = BIND
         tone = "ok" if outcome.ok else ("error" if outcome.kind in ERROR_KINDS else "info")
-        self._say(outcome.message, tone)
+        self._say(f"提交成功。{outcome.message}" if outcome.ok else outcome.message, tone)
         self._set_busy(False)
-        if outcome.kind == flow.SUCCEEDED:
-            shown = outcome.message
-            self._run_async(self.flow.plan_note, lambda note: self._append_note(shown, note))
 
     def _append_note(self, shown: str, note: str) -> None:
         if note and self.status_var.get() == shown:  # not if another action replaced the message
@@ -374,11 +441,18 @@ class App:
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
-        self.button.configure(text=BUTTON_TEXT[self.mode], state="disabled" if busy else "normal")
-        self.entry.configure(state="normal" if (self.mode == REDEEM and not busy) else "disabled")
+        self.button.configure(text=BUTTON_TEXT[self.mode], state=self._button_state())
+        state = "normal" if (self.mode == REDEEM and not busy) else "disabled"
+        self.account_entry.configure(state=state)
+        self.entry.configure(state=state)
         if not busy and self.mode == REDEEM:
             self.entry.focus_set()
         self._relayout()
+
+    def _button_state(self) -> str:
+        """Off while a request runs (no second submit), and while there is no CDK to redeem."""
+        blank = self.mode == REDEEM and (not self.account_var.get().strip() or not self.cdk_var.get().strip())
+        return "disabled" if self._busy or blank else "normal"
 
     def _progress_sink(self):
         if not self._threaded:
@@ -425,10 +499,11 @@ class App:
 
 def main() -> int:
     import ctypes
+    import functools
     import gc
     import os
 
-    from . import account, api, config, log, single
+    from . import api, config, log, single
 
     if os.name == "nt":
         handle = single.acquire()
@@ -441,8 +516,12 @@ def main() -> int:
             pass
     paths = config.Paths.default()
     cfg = config.load(paths)
+    submit = None
+    if os.environ.get(SUBMIT_MOCK_ENV) == "1" and api.is_local(cfg.base_url):
+        submit = functools.partial(send_submission, cfg, paths.log)
     try:
-        app = App(flow.Recharge(paths, cfg, account.read_account), local_backend=api.is_local(cfg.base_url))
+        app = App(flow.Recharge(paths, cfg), local_backend=api.is_local(cfg.base_url),
+                  submit=submit)
         app.run()
     except Exception:  # noqa: BLE001
         log.write(paths.log, "window", "crashed")

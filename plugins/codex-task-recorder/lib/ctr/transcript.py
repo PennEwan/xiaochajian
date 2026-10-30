@@ -78,6 +78,9 @@ def ingest(path: str, offset: int, state: State, ctx: Context, budget_bytes: int
         if rec.get("type") == "turn_context" or payload.get("type") == "task_started":
             ctx.current_turn = payload.get("turn_id") or ctx.current_turn
         for e in mapped:
+            # turn_context precedes a turn's records, so the latest model seen is that turn's model.
+            if e["model"] is None:
+                e["model"] = ctx.last_model
             if e["turn_id"] is None and ctx.current_turn and e["kind"] in _TURN_SCOPED:
                 e["turn_id"] = ctx.current_turn
                 e["relations"]["turn_id_inferred"] = True

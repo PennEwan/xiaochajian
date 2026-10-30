@@ -158,9 +158,10 @@ class RecordingTest(TempPathsCase):
             f.write(json.dumps(rec(11, "event_msg", {"type": "turn_aborted", "turn_id": "turn-1",
                                                      "reason": "interrupted"})) + "\n")
         st = state.load(self.paths.state)
-        self.assertEqual(hook.flush_transcripts(self.paths, st), 1)
+        self.assertEqual(hook.flush_transcripts(self.paths, st), 2, "turn_aborted + its turn_coverage")
         aborted = [e for e in self.events() if e["source"]["name"] == "event_msg/turn_aborted"]
         self.assertEqual(len(aborted), 1)
+        self.assertEqual(self.kinds().count("turn_coverage"), 1)
         self.assertEqual(hook.flush_transcripts(self.paths, st), 0, "second flush adds nothing")
 
     def test_garbage_stdin_exits_zero_and_logs(self):

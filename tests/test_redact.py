@@ -65,6 +65,72 @@ class RedactTextTest(unittest.TestCase):
             self.assertEqual(sum(counts.values()), 0, text)
 
 
+class CdkAndSessionTest(unittest.TestCase):
+    """P3: CDKs and session credentials must never reach the sync backend."""
+
+    def assertRedacted(self, text, secret, kind):
+        out, counts = redact_text(text)
+        self.assertNotIn(secret, out, text)
+        self.assertIn(f"[REDACTED:{kind}]", out, text)
+        self.assertGreaterEqual(counts[kind], 1, text)
+
+    def test_cdk_after_keyword(self):
+        cases = [("我的兑换码是 TEST-OK01", "TEST-OK01"), ("兑换码：abcd2345efgh", "abcd2345efgh"),
+                 ("cdk=XYZW-9876", "XYZW-9876"), ("CDK: k3y-value-1", "k3y-value-1"),
+                 ("redeem code ABCD-EFGH-IJKL-MNOP", "ABCD-EFGH-IJKL-MNOP"),
+                 ("这张卡密 QWER1234ASDF", "QWER1234ASDF"), ("帮我查一下激活码ZXCV5678", "ZXCV5678"),
+                 ("充值码为 a1b2c3d4", "a1b2c3d4")]
+        for text, secret in cases:
+            self.assertRedacted(text, secret, "cdk")
+
+    def test_cdk_in_quotes_json_and_chinese_phrasing(self):
+        secret = "ABCD1234EFGH"
+        for text in [f'cdk="{secret}"', f'--cdk "{secret}"', f"curl -d '{{\"cdk\":\"{secret}\"}}'",
+                     f"兑换码为：{secret}", f"兑换码是: {secret}", f"CDK码：{secret}", f"CDK：「{secret}」",
+                     f"兑换码是“{secret}”", "兑换码 abcd1234efgh", f"cdkey={secret}"]:
+            out, counts = redact_text(text)
+            self.assertNotIn(secret.lower(), out.lower(), text)
+            self.assertEqual(counts["cdk"], 1, text)
+
+    def test_cdk_keys_in_any_case_style(self):
+        out, _ = redact_obj({"cdkCode": "x1", "userCdk": "x2", "cdkey": "x3", "activationCode": "x4",
+                             "redeem-code": "x5", "Redeem Code": "x6"})
+        self.assertEqual(set(out.values()), {"[REDACTED:key]"})
+
+    def test_placeholders_are_not_counted_twice(self):
+        once, first = redact_obj({"password": "pw1", "cmd": "curl -H 'Authorization: Bearer abcdefghijklmnop1234' "
+                                                             "https://u:secretpw@x/"})
+        twice, second = redact_obj(once)
+        self.assertEqual(twice, once)
+        self.assertEqual(sum(second.values()), 0, second)
+
+    def test_grouped_code_without_keyword(self):
+        self.assertRedacted("try AB12-CD34-EF56-GH78 now", "AB12-CD34-EF56-GH78", "cdk_like")
+
+    def test_session_and_app_tokens(self):
+        self.assertRedacted("sess-" + "A1b2C3d4E5f6G7h8I9j0K1l2", "A1b2C3d4E5f6G7h8I9j0K1l2", "session_key")
+        self.assertRedacted("token cdkb_" + "x" * 24, "x" * 24, "app_token")
+        self.assertRedacted("Bearer-less ctrd_" + "Q" * 30, "Q" * 30, "app_token")
+
+    def test_cdk_and_session_keys(self):
+        out, counts = redact_obj({"cdk": "TEST-OK01", "redeem_code": "abc", "兑换码": "x1y2",
+                                  "sessionid": "zzz", "session_id": "01a1634e-e806", "cdk_count": 3})
+        self.assertEqual(out["cdk"], "[REDACTED:key]")
+        self.assertEqual(out["redeem_code"], "[REDACTED:key]")
+        self.assertEqual(out["兑换码"], "[REDACTED:key]")
+        self.assertEqual(out["sessionid"], "[REDACTED:key]")
+        self.assertEqual(out["session_id"], "01a1634e-e806", "Codex session ids are kept for linking")
+        self.assertEqual(out["cdk_count"], 3)
+
+    def test_ordinary_text_about_cdks_is_kept(self):
+        for text in ["the CDK window opens", "CDK 充值插件", "fix the cdk redeem flow", "CDK API",
+                     "uuid 550E8400-E29B-41D4-A716-446655440000", "ISO-8601 dates", "session_id: abc",
+                     "AB-CD-EF", "SECTION-HEADER-TITLE-TEXT"]:
+            out, counts = redact_text(text)
+            self.assertEqual(out, text, text)
+            self.assertEqual(sum(counts.values()), 0, text)
+
+
 class RedactObjTest(unittest.TestCase):
     def test_sensitive_keys_only_for_strings(self):
         obj = {"api_key": "plainvalue", "password": "pw", "input_tokens": 12,

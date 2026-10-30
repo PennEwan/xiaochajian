@@ -1,7 +1,7 @@
 {
   "name": "codex-task-recorder",
   "version": "0.1.0",
-  "description": "Records consented Codex sessions to local JSONL files for model evaluation. Nothing is uploaded.",
+  "description": "Records consented Codex sessions to local JSONL files for model evaluation. Uploading is off unless the user separately enables data sync.",
   "author": {
     "name": "Codex Task Recorder"
   },
@@ -9,13 +9,14 @@
     "recorder",
     "evaluation",
     "hooks",
-    "jsonl"
+    "jsonl",
+    "sync"
   ],
   "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Codex Task Recorder",
-    "shortDescription": "在本机记录你已同意采集的 Codex 会话（不上传）",
-    "longDescription": "安装时你已在同意页确认后，本插件通过 Codex 官方生命周期 Hooks 记录开启期间的全部会话：你提交的 Prompt、模型公开回复、模型名称与配置、工具调用及结果和错误、公开推理摘要（模型提供时）、时间戳与会话/任务 ID。数据只写入本机 %LOCALAPPDATA%\\CodexTaskRecorder，不联网上传。密码、API Key、令牌、Cookie、私钥等会被脱敏；加密推理内容、系统指令、auth.json 等凭证文件不采集。停止记录：双击「停止记录.cmd」，或在此禁用插件，或在 设置 → Hooks 中关闭信任。未经过同意页时插件不记录任何内容。",
+    "shortDescription": "记录你已同意采集的 Codex 会话；数据同步需另行开启",
+    "longDescription": "安装时你已在同意页确认后，本插件通过 Codex 官方生命周期 Hooks 记录开启期间的全部会话：你提交的 Prompt、模型公开回复、模型名称与配置、工具调用及结果和错误、公开推理摘要（模型提供时）、时间戳与会话/任务 ID。数据默认只写入本机 %LOCALAPPDATA%\\CodexTaskRecorder。数据同步默认关闭：只有你双击「开启同步.cmd」并在授权说明中同意后，才会把之后记录的内容上传到你配置的后台（匿名设备 ID，不关联 ChatGPT 账号）；可随时双击「暂停同步.cmd」暂停，或「撤销同步.cmd」撤销并删除后台数据。密码、API Key、令牌、Cookie、私钥、CDK 等会被脱敏；加密推理内容、系统指令、auth.json 等凭证文件不采集。停止记录：双击「停止记录.cmd」，或在此禁用插件，或在 设置 → Hooks 中关闭信任。未经过同意页时插件不记录任何内容。",
     "developerName": "Codex Task Recorder",
     "category": "Developer Tools",
     "capabilities": [

@@ -4,12 +4,14 @@ Error types tell the caller what is known about the request:
   NotSent   — it certainly never reached the backend (refused, DNS, TLS handshake);
   Unknown   — it may have been processed (timeout or connection lost after sending);
   HttpError — the backend answered with an error code.
-No exception ever carries the CDK, the binding token or a request body.
+No exception ever carries the CDK or a request body. No request carries a ChatGPT credential or
+any token: the backend receives only the account value entered by the user.
 """
 from __future__ import annotations
 
 import http.client
 import json
+import re
 import socket
 import ssl
 import urllib.error
@@ -20,6 +22,11 @@ from . import __version__
 
 CLIENT = f"codex-cdk-recharge/{__version__}"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# /v1/submissions only reaches a local mock until the field is confirmed to hold non-sensitive
+# order numbers / redemption codes; flip this then, never before.
+SUBMIT_LIVE = False
+_SUBMIT_CODE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{3,63}")
+_SECRET_PREFIXES = ("sk-", "sess-")
 
 
 class InsecureUrl(ValueError):
@@ -71,6 +78,15 @@ def is_local(base_url: str | None) -> bool:
     return bool(base_url) and urlsplit(base_url).hostname in LOCAL_HOSTS
 
 
+def submit_code(text: str) -> str | None:
+    """An order number or redemption code (4–64 letters, digits, '-'), else None. A pasted session
+    JSON, JWT (it has dots) or key (sk-…, sess-…) never qualifies, so it is never sent."""
+    value = "".join((text or "").split())
+    if _SUBMIT_CODE.fullmatch(value) and not value.lower().startswith(_SECRET_PREFIXES):
+        return value
+    return None
+
+
 def _not_sent_kind(reason: object) -> str | None:
     if isinstance(reason, ConnectionRefusedError):
         return "refused"
@@ -86,7 +102,7 @@ def _not_sent_kind(reason: object) -> str | None:
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Never follow redirects: urllib would carry the Authorization header to any Location."""
+    """Never follow redirects: the backend answers directly, and a moved POST may already have run."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None  # urllib then raises HTTPError for the 3xx
@@ -100,25 +116,35 @@ class Api:
         handlers = [urllib.request.ProxyHandler({})] if is_local(self.base_url) else []
         self._opener = urllib.request.build_opener(_NoRedirect, *handlers)
 
-    def bind(self, chatgpt_account_id: str, email: str) -> dict:
-        return self._call("POST", "/v1/bindings", None,
-                          {"chatgpt_account_id": chatgpt_account_id, "email": email})
+    def redeem(self, cdk: str, account: str, email: str | None = None) -> dict:
+        """Redeem to the account supplied by the user.
 
-    def redeem(self, token: str, cdk: str, chatgpt_account_id: str) -> dict:
-        return self._call("POST", "/v1/redemptions", token,
-                          {"cdk": cdk, "chatgpt_account_id": chatgpt_account_id})
+        ``email`` is retained only for older callers. The manual-entry flow sends one account
+        value as ``account`` and never reads Codex account data.
+        """
+        body = {"cdk": cdk, "account": account}
+        if email is not None:  # legacy callers; the new flow never takes this branch
+            body = {"cdk": cdk, "chatgpt_account_id": account, "email": email}
+        return self._call("POST", "/v1/redemptions", body)
 
-    def get_redemption(self, token: str, redemption_id: str) -> dict:
-        return self._call("GET", "/v1/redemptions/" + quote(redemption_id, safe=""), token, None)
+    def get_redemption(self, redemption_id: str) -> dict:
+        return self._call("GET", "/v1/redemptions/" + quote(redemption_id, safe=""), None)
 
-    def _call(self, method: str, path: str, token: str | None, body: dict | None) -> dict:
+    def submit(self, code: str) -> dict:
+        """The checked code and nothing else: no account id."""
+        value = submit_code(code)
+        if value is None:
+            raise ValueError("not an order number or redemption code")
+        if not (SUBMIT_LIVE or is_local(self.base_url)):
+            raise NotSent("disabled")
+        return self._call("POST", "/v1/submissions", {"code": value})
+
+    def _call(self, method: str, path: str, body: dict | None) -> dict:
         headers = {"Accept": "application/json", "X-Cdkr-Client": CLIENT}
         data = None
         if body is not None:
             data = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
-        if token:
-            headers["Authorization"] = "Bearer " + token
         req = urllib.request.Request(self.base_url + path, data=data, method=method, headers=headers)
         try:
             with self._opener.open(req, timeout=self.timeout) as resp:

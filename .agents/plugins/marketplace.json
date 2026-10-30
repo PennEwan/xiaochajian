@@ -27,6 +27,18 @@
         "authentication": "ON_INSTALL"
       },
       "category": "Productivity"
+    },
+    {
+      "name": "codex-native-assist",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-native-assist"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
     }
   ]
 }

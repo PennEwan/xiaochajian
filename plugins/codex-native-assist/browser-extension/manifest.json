@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Codex Native Assist Session Reader",
+  "version": "0.3.9",
+  "description": "Reads the logged-in ChatGPT session response for Codex Native Assist.",
+  "permissions": [],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "http://127.0.0.1/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+# ctrsrv — Codex 采集后台（stdlib + SQLite，单个 Python 进程）
+#
+# 安装（Debian/Ubuntu 路径示例，换成你的实际位置）：
+#   sudo useradd --system --home /var/lib/ctrsrv --shell /usr/sbin/nologin ctrsrv
+#   sudo install -d -o ctrsrv -g ctrsrv /opt/ctrsrv
+#   sudo cp -r server docs /opt/ctrsrv/            # 需要 server/ctrsrv/ 与 docs/backend.md
+#   sudo -u ctrsrv env PYTHONPATH=/opt/ctrsrv/server /usr/bin/python3 \
+#        -m ctrsrv --db /var/lib/ctrsrv/ctrsrv.sqlite3 initdb
+#   sudo install -d -m 0750 -o root -g ctrsrv /etc/ctrsrv
+#   printf 'CTRSRV_ADMIN_TOKEN=%s\n' "$(head -c 32 /dev/urandom | base64)" \
+#        | sudo tee /etc/ctrsrv/admin.env >/dev/null && sudo chmod 0640 /etc/ctrsrv/admin.env
+#   sudo cp server/ctrsrv.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now ctrsrv
+#
+# 配置走环境变量，不放在命令行上：`python -m ctrsrv serve` 读 CTRSRV_HOST / CTRSRV_PORT /
+# CTRSRV_ADMIN_TOKEN，命令行参数（--host/--port/--admin-token）只在显式传入时覆盖环境变量。
+# 管理令牌因此只存在于 /etc/ctrsrv/admin.env 和进程环境里，不会出现在 `ps`、`systemctl status`
+# 的 ExecStart 行、也不进 shell 历史。变量没设时 admin_token 为空 → /admin/* 一律 403
+# admin_disabled，不会裸奔。
+#
+# `--db` 例外，必须写在命令行：集成的 argparse 默认值是 "data/ctrsrv.sqlite3"，它会覆盖
+# Config 自己读的 CTRSRV_DB，所以从 CLI 起服务时环境变量 CTRSRV_DB 不生效（见 docs/backend.md §5.1）。
+
+[Unit]
+Description=ctrsrv - Codex collection backend (HTTP + SQLite)
+Documentation=file:/opt/ctrsrv/docs/backend.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ctrsrv
+Group=ctrsrv
+# 代码根目录；相对路径以此为基准，运行参数一律给绝对路径
+WorkingDirectory=/opt/ctrsrv
+# 让 `python -m ctrsrv` 找得到包（等价于 PYTHONPATH=server）
+Environment=PYTHONPATH=/opt/ctrsrv/server
+Environment=PYTHONUNBUFFERED=1
+# 监听地址与端口给默认值；要改就改这两行，别改 ExecStart
+Environment=CTRSRV_HOST=127.0.0.1
+Environment=CTRSRV_PORT=8080
+# 可选文件：一行 CTRSRV_ADMIN_TOKEN=...；文件不存在时照常启动，/admin/* 关闭
+EnvironmentFile=-/etc/ctrsrv/admin.env
+# 解释器绝对路径占位：改成你的 python3（>=3.10；无第三方依赖，不强制 venv）
+ExecStart=/opt/ctrsrv/.venv/bin/python -m ctrsrv --db /var/lib/ctrsrv/ctrsrv.sqlite3 serve
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+KillSignal=SIGTERM
+# 单文件库只由本进程读写；StateDirectory 负责建 /var/lib/ctrsrv 并交给 ctrsrv 用户
+StateDirectory=ctrsrv
+StateDirectoryMode=0750
+UMask=0027
+# 加固：只有 StateDirectory 可写，其余文件系统只读
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+SyslogIdentifier=ctrsrv
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

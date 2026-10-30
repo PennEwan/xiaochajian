@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from . import timeutil
+from . import store, timeutil
 
 CONSENT_VERSION = 1
 
@@ -60,7 +60,7 @@ def save(path: Path, state: State) -> None:
     doc.pop("corrupt", None)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    store.replace(tmp, path)
 
 
 def enable(path: Path, now: datetime, scope_cwds: list[str] | None = None,

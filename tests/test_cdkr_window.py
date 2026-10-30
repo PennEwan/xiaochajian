@@ -1,11 +1,16 @@
+import functools
 import gc
 import os
+import tempfile
 import types
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from cdkr import flow, paint
+from cdkr import config, flow, paint
 from cdkr.flow import Outcome, View
+
+from cdkr_helpers import MockBackend
 
 try:
     import tkinter
@@ -20,9 +25,6 @@ class FakeFlow:
         self.views, self.outcomes, self.redeemed, self.note = list(views), list(outcomes), [], note
 
     def load(self):
-        return self.views.pop(0)
-
-    def bind(self):
         return self.views.pop(0)
 
     def redeem(self, cdk, progress=None):
@@ -66,18 +68,14 @@ class WindowCase(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_TK, "needs a desktop session with Tk")
 class WindowTest(WindowCase):
-    def test_first_use_binds_then_redeems(self):
-        fake = FakeFlow([View(flow.NEED_BIND, "首次使用", "a@example.com", "Free"),
-                         View(flow.READY, "绑定成功", "a@example.com", "Free")],
+    def test_first_use_goes_straight_to_the_cdk(self):
+        fake = FakeFlow([View(flow.READY, "CDK 将充值到上面这个 ChatGPT 账号。", "a@example.com", "Free")],
                         [Outcome(flow.SUCCEEDED, "充值成功：X。CDK TE…01 已核销。")],
                         note="Codex 账号套餐：Plus。")
-        app = self.make(fake)
-        self.assertEqual(app.button["text"], "确认充值到此账号")
-        self.assertEqual(str(app.entry["state"]), "disabled")
-        self.assertIn("a@example.com", app.account_var.get())
-        app.button.invoke()
-        self.assertEqual(app.button["text"], "确认兑换")
+        app = self.make(fake)  # no confirm-the-account step before the CDK box opens
+        self.assertEqual(app.button["text"], "确认提交")
         self.assertEqual(str(app.entry["state"]), "normal")
+        self.assertIn("a@example.com", app.account_var.get())
         app.cdk_var.set("TEST-OK01")
         app.button.invoke()
         self.assertEqual(fake.redeemed, ["TEST-OK01"])
@@ -86,7 +84,7 @@ class WindowTest(WindowCase):
         self.assertIn("Codex 账号套餐：Plus。", app.status_var.get())  # appended after the lookup
 
     def test_failed_redeem_keeps_cdk_for_correction(self):
-        fake = FakeFlow([View(flow.READY, "已绑定", "a@example.com", "Plus")],
+        fake = FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")],
                         [Outcome(flow.CDK_INVALID, "CDK NOPE…1234 无效，请检查是否输错。")])
         app = self.make(fake)
         app.cdk_var.set("NOPE-1234")
@@ -98,28 +96,71 @@ class WindowTest(WindowCase):
         self.assertEqual(app.cdk_var.get(), "NOPE-1234")
         self.assertIn("无效", app.status_var.get())
 
-    def test_lost_binding_switches_back_to_bind(self):
-        fake = FakeFlow([View(flow.READY, "已绑定", "a@example.com", "Plus")],
-                        [Outcome(flow.BINDING_INVALID, "登录已失效，请重新绑定账号后再兑换。")])
+    def test_empty_cdk_cannot_be_submitted(self):
+        fake = FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")])
+        app = self.make(fake)
+        self.assertEqual(app.button["state"], "disabled")
+        app.cdk_var.set("   ")
+        app.button.invoke()
+        app.entry.focus_force()
+        app.entry.event_generate("<Return>")
+        app.root.update()
+        self.assertEqual(fake.redeemed, [])
+        app.cdk_var.set("TEST-OK01")
+        self.assertEqual(app.button["state"], "normal")
+        app.cdk_var.set("")
+        self.assertEqual(app.button["state"], "disabled")
+
+    def test_repeated_clicks_send_one_request_then_allow_retry(self):
+        from cdkr import window
+        fake = FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")],
+                        [Outcome(flow.NOT_SENT, "连不上充值服务，请检查网络后重试。"), Outcome(flow.SUCCEEDED, "充值成功")])
+        pending = []
+        app = window.App(fake, local_backend=True, run_async=lambda fn, done: pending.append((fn, done)))
+        self.addCleanup(self.destroy, app)
+        app.start()
+        pending.pop()[1](fake.load())
+        app.cdk_var.set("TEST-OK01")
+        for _ in range(3):
+            app.button.invoke()
+            app.entry.event_generate("<Return>")
+        self.assertEqual(len(pending), 1)  # one request while it runs
+        self.assertEqual(app.status_var.get(), "正在提交…")
+        self.assertEqual(app.button["state"], "disabled")
+        self.assertEqual(str(app.entry["state"]), "disabled")
+        fn, done = pending.pop()
+        done(fn())
+        self.assertIn("重试", app.status_var.get())
+        self.assertEqual(app.canvas.itemcget(app.status_text, "fill"), paint.hexc(paint.BAD_RED))
+        self.assertEqual(app.button["state"], "normal")  # the CDK stays, so it can be retried
+        app.button.invoke()
+        fn, done = pending.pop()
+        done(fn())
+        self.assertEqual(fake.redeemed, ["TEST-OK01", "TEST-OK01"])
+        self.assertEqual(app.status_var.get(), "提交成功。充值成功")
+
+    def test_rejected_account_stays_on_the_cdk(self):
+        fake = FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")],
+                        [Outcome(flow.INVALID_ACCOUNT, "充值服务不接受这个账号信息，请联系客服。")])
         app = self.make(fake)
         app.cdk_var.set("TEST-OK01")
         app.button.invoke()
-        self.assertEqual(app.button["text"], "确认充值到此账号")
-        self.assertIn("登录已失效", app.status_var.get())
+        self.assertEqual((app.button["text"], app.button["state"]), ("确认提交", "normal"))
+        self.assertEqual(app.canvas.itemcget(app.status_text, "fill"), paint.hexc(paint.BAD_RED))
 
     def test_no_account_offers_retry(self):
         fake = FakeFlow([View(flow.NO_ACCOUNT, flow.ACCOUNT_MESSAGES[flow.NOT_LOGGED_IN]),
-                         View(flow.READY, "已绑定", "a@example.com", "Plus")])
+                         View(flow.READY, "就绪", "a@example.com", "Plus")])
         app = self.make(fake)
         self.assertEqual(app.button["text"], "重新读取")
         app.button.invoke()
-        self.assertEqual(app.button["text"], "确认兑换")
+        self.assertEqual(app.button["text"], "确认提交")
 
     def test_threaded_path_touches_tk_only_on_main_thread(self):
         import threading
         import time
         from cdkr import window
-        fake = FakeFlow([View(flow.READY, "已绑定", "a@example.com", "Plus")],
+        fake = FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")],
                         [Outcome(flow.SUCCEEDED, "充值成功")])
         app = window.App(fake, local_backend=True)  # real worker threads
         self.addCleanup(app.root.destroy)
@@ -129,7 +170,7 @@ class WindowTest(WindowCase):
         app.root.after(100, app._drain)
         app.start()
         deadline = time.monotonic() + 5
-        while app.button["text"] != "确认兑换" or str(app.button["state"]) == "disabled":
+        while str(app.entry["state"]) != "normal":  # loaded and ready for a CDK
             app.root.update()
             self.assertLess(time.monotonic(), deadline)
         app.cdk_var.set("TEST-OK01")
@@ -141,10 +182,116 @@ class WindowTest(WindowCase):
         self.assertTrue(all(t is threading.main_thread() for t in threads), threads)
 
     def test_mock_backend_is_labelled(self):
-        app = self.make(FakeFlow([View(flow.READY, "已绑定", "a@example.com", "Plus")]), local=True)
+        app = self.make(FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")]), local=True)
         self.assertIn("模拟", app.footer_var.get())
-        app2 = self.make(FakeFlow([View(flow.READY, "已绑定", "a@example.com", "Plus")]), local=False)
+        app2 = self.make(FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")]), local=False)
         self.assertNotIn("模拟", app2.footer_var.get())
+
+
+@unittest.skipUnless(HAVE_TK, "needs a desktop session with Tk")
+class SubmitWindowTest(WindowCase):
+    """确认提交 against the local mock's /v1/submissions (CDKR_SUBMIT_MOCK=1)."""
+
+    def setUp(self):
+        super().setUp()
+        self.backend = MockBackend()
+        self.addCleanup(self.backend.stop)
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        self.log = Path(home.name) / "cdkr.log"
+        self.fake = FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")])
+        self.pending = []
+
+    def open(self, threaded=False):
+        """The window wired as main() does with CDKR_SUBMIT_MOCK=1. Unless threaded, every request
+        waits in self.pending until finish(), so the loading state can be inspected."""
+        from cdkr import window
+        submit = functools.partial(window.send_submission, config.Config(base_url=self.backend.url, timeout=5),
+                                   self.log)
+        app = window.App(self.fake, local_backend=True, submit=submit,
+                         run_async=None if threaded else (lambda fn, done: self.pending.append((fn, done))))
+        self.addCleanup(self.destroy, app)
+        if threaded:
+            app.root.after(100, app._drain)
+        app.start()
+        if not threaded:
+            self.finish()
+        return app
+
+    def finish(self):
+        fn, done = self.pending.pop(0)
+        done(fn())
+
+    def submit(self, app, text):
+        app.cdk_var.set(text)
+        app.button.invoke()
+        self.finish()
+
+    def status(self, app):
+        return app.status_var.get(), app.canvas.itemcget(app.status_text, "fill")
+
+    def test_loading_then_success_with_one_request_for_repeated_clicks(self):
+        app = self.open()
+        app.cdk_var.set("TEST-OK01")
+        for _ in range(3):
+            app.button.invoke()
+            app.entry.event_generate("<Return>")
+        self.assertEqual(len(self.pending), 1)
+        self.assertEqual(app.status_var.get(), "正在提交…")
+        self.assertEqual((app.button["state"], str(app.entry["state"])), ("disabled", "disabled"))
+        self.finish()
+        self.assertEqual(self.status(app), ("提交成功。已收到 TE…01。", paint.hexc(paint.OK_GREEN)))
+        self.assertEqual(self.backend.state.submissions, [{"code": "TEST-OK01"}])
+        self.assertEqual(self.backend.state.authorizations, [""])  # no token, no login
+        self.assertEqual((self.fake.redeemed, self.pending), ([], []))  # no redemption, no plan lookup
+        self.assertEqual(app.cdk_var.get(), "")
+
+    def test_failure_shows_an_error_and_allows_a_retry(self):
+        app = self.open()
+        self.backend.post("/_mock/fail-next", {"status": 503})
+        self.submit(app, "TEST-OK02")
+        self.assertEqual(self.status(app), ("提交服务暂时不可用（503），请稍后重试。", paint.hexc(paint.BAD_RED)))
+        self.assertEqual((app.cdk_var.get(), app.button["state"]), ("TEST-OK02", "normal"))
+        app.button.invoke()
+        self.finish()
+        self.assertEqual(app.status_var.get(), "提交成功。已收到 TE…02。")
+        self.assertEqual(self.backend.state.paths, ["/v1/submissions"] * 2)
+        self.submit(app, "NOPE-0000")
+        self.assertEqual(self.status(app), ("NO…00 无效，请检查是否输错。", paint.hexc(paint.BAD_RED)))
+
+    def test_credentials_are_refused_before_anything_is_sent(self):
+        app = self.open()
+        for text in ('{"accessToken": "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln"}', "sk-proj-abcdEFGH1234"):
+            self.submit(app, text)
+            self.assertIn("格式不对", app.status_var.get())
+            self.assertEqual(app.cdk_var.get(), text)  # kept for correction
+        self.assertEqual(self.backend.state.paths, [])
+
+    def test_log_never_holds_what_was_typed(self):
+        app = self.open()
+        self.submit(app, "TEST-OK03")
+        self.submit(app, "NOPE-0000")
+        text = self.log.read_text(encoding="utf-8")
+        self.assertIn("submit succeeded", text)
+        self.assertIn("submit cdk_invalid status=400", text)
+        for typed in ("TEST-OK03", "NOPE-0000", "TE…03"):
+            self.assertNotIn(typed, text)
+
+    def test_threaded_slow_submission_is_sent_once(self):
+        import time
+        app = self.open(threaded=True)  # real worker threads; TEST-WAIT answers after 2 s
+        self.addCleanup(lambda: [app.root.after_cancel(i)  # the _drain timer, before the window goes
+                                 for i in app.root.tk.splitlist(app.root.tk.call("after", "info"))])
+        deadline = time.monotonic() + 10
+        while str(app.entry["state"]) != "normal":
+            app.root.update()
+            self.assertLess(time.monotonic(), deadline)
+        app.cdk_var.set("TEST-WAIT")
+        while "提交成功" not in app.status_var.get():
+            app.button.invoke()  # keeps clicking while the request runs
+            app.root.update()
+            self.assertLess(time.monotonic(), deadline)
+        self.assertEqual(self.backend.state.submissions, [{"code": "TEST-WAIT"}])
 
 
 @unittest.skipUnless(HAVE_TK, "needs a desktop session with Tk")
@@ -152,7 +299,7 @@ class CardLookTest(WindowCase):
     """The 小助手-style borderless card."""
 
     def ready(self, **kw):
-        return self.make(FakeFlow([View(flow.READY, "已绑定", "a@example.com", "Plus")], **kw))
+        return self.make(FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")], **kw))
 
     def test_is_a_borderless_card_of_the_assistant_width(self):
         app = self.ready()
@@ -163,6 +310,14 @@ class CardLookTest(WindowCase):
         app = self.ready()
         self.assertEqual(app.account_var.get(), "a@example.com")
         self.assertEqual(app.canvas.itemcget(app.plan_chip.label, "text"), "Plus")
+
+    def test_guide_link_shows_and_opens_the_recharge_page(self):
+        from cdkr import window
+        app = self.ready()
+        self.assertEqual(app.canvas.itemcget(app.link, "text"), window.RECHARGE_URL)
+        with mock.patch("webbrowser.open") as open_:
+            app._open_link()
+        open_.assert_called_once_with(window.RECHARGE_URL)
 
     def test_close_button_closes(self):
         app = self.ready()
@@ -198,7 +353,7 @@ class CardLookTest(WindowCase):
         self.assertEqual((app.root.winfo_x(), app.root.winfo_y()), (240, 210))
 
     def test_status_colour_follows_the_outcome(self):
-        app = self.make(FakeFlow([View(flow.READY, "已绑定", "a@example.com", "Plus")],
+        app = self.make(FakeFlow([View(flow.READY, "就绪", "a@example.com", "Plus")],
                                  [Outcome(flow.SUCCEEDED, "充值成功"), Outcome(flow.CDK_INVALID, "CDK 无效")]))
         for cdk, colour in (("TEST-OK01", paint.OK_GREEN), ("NOPE-1234", paint.BAD_RED)):
             app.cdk_var.set(cdk)

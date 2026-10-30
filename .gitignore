@@ -1,3 +1,9 @@
 __pycache__/
 *.pyc
 /.testdata/
+/build/
+/dist/
+/server/data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

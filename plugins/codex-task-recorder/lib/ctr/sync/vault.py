@@ -1,13 +1,18 @@
-"""Keep the backend binding in a file only the current Windows user can decrypt (DPAPI)."""
+"""Keep the sync device token in a file only the current Windows user can decrypt (DPAPI).
+
+Same technique as the recharge plugin's vault, with its own entropy: the two plugins
+share no code and no secrets.
+"""
 from __future__ import annotations
 
 import ctypes
 import json
-import os
 from ctypes import wintypes
 from pathlib import Path
 
-_ENTROPY = b"codex-cdk-recharge/binding/v1"
+from .. import store
+
+_ENTROPY = b"codex-task-recorder/sync-device/v1"
 _CRYPTPROTECT_UI_FORBIDDEN = 0x1
 
 
@@ -45,7 +50,7 @@ def save(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_bytes(sealed)
-    os.replace(tmp, path)
+    store.replace(tmp, path)
 
 
 def load(path: Path) -> dict | None:
@@ -66,5 +71,5 @@ def load(path: Path) -> dict | None:
 def clear(path: Path) -> None:
     try:
         path.unlink()
-    except OSError:  # missing, or locked by antivirus: the backend rejects a stale token anyway
+    except OSError:  # missing, or locked by antivirus: a revoked token is rejected anyway
         pass

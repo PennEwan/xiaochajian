@@ -64,6 +64,11 @@ class SessionHandle:
             return
         path = self.events_file
         path.parent.mkdir(parents=True, exist_ok=True)
+        seq = self.cursor.get("next_seq") or self.cursor.get("event_count", 0) + 1
+        for e in events:
+            e["seq"] = seq
+            seq += 1
+        self.cursor["next_seq"] = seq
         payload = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events)
         with open(path, "ab") as f:
             f.write(payload.encode("utf-8"))
@@ -71,19 +76,72 @@ class SessionHandle:
         self.cursor["last_event_at"] = events[-1]["recorded_at"]
 
 
+def replace(src: Path, dst: Path, attempts: int = 50, wait_s: float = 0.02) -> None:
+    """os.replace that rides out a reader: Windows refuses to replace a file while another
+    process has it open (the uploader and `ctr status` read cursor and state files), and
+    such readers let go within milliseconds."""
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(wait_s)
+
+
 @contextmanager
-def session(paths: Paths, session_id: str) -> Iterator[SessionHandle]:
-    paths.cursors.mkdir(parents=True, exist_ok=True)
-    name = safe_name(session_id)
-    lock_path = paths.cursors / f"{name}.lock"
-    cursor_path = paths.cursors / f"{name}.json"
+def locked(lock_path: Path, timeout: float = LOCK_TIMEOUT_S, label: str = "") -> Iterator[None]:
+    """Hold an exclusive lock on `lock_path` (created if needed) for the duration of the block."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        deadline = time.monotonic() + LOCK_TIMEOUT_S
+        deadline = time.monotonic() + timeout
         while not _try_lock(fd):
             if time.monotonic() > deadline:
-                raise LockTimeout(session_id)
+                raise LockTimeout(label or lock_path.name)
             time.sleep(0.02)
+        try:
+            yield
+        finally:
+            _unlock(fd)
+    finally:
+        os.close(fd)
+
+
+def try_hold(lock_path: Path) -> int | None:
+    """Take a lock for as long as the process wants it (single-instance guard): an fd, or None."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    if _try_lock(fd):
+        return fd
+    os.close(fd)
+    return None
+
+
+def release(fd: int) -> None:
+    try:
+        _unlock(fd)
+    finally:
+        os.close(fd)
+
+
+def is_held(lock_path: Path) -> bool:
+    """True while some process holds `lock_path`."""
+    if not lock_path.exists():
+        return False
+    fd = try_hold(lock_path)
+    if fd is None:
+        return True
+    release(fd)
+    return False
+
+
+@contextmanager
+def session(paths: Paths, session_id: str) -> Iterator[SessionHandle]:
+    name = safe_name(session_id)
+    cursor_path = paths.cursors / f"{name}.json"
+    with locked(paths.cursors / f"{name}.lock", label=session_id):
         try:
             cursor = json.loads(cursor_path.read_text(encoding="utf-8"))
         except (FileNotFoundError, ValueError):
@@ -95,10 +153,7 @@ def session(paths: Paths, session_id: str) -> Iterator[SessionHandle]:
         finally:
             tmp = cursor_path.with_suffix(".tmp")
             tmp.write_text(json.dumps(handle.cursor, ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, cursor_path)
-            _unlock(fd)
-    finally:
-        os.close(fd)
+            replace(tmp, cursor_path)
 
 
 def iter_events(paths: Paths) -> Iterator[dict]:

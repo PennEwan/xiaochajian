@@ -12,10 +12,13 @@ import sys
 import time
 from collections import Counter
 
-from . import procinfo, state, store, timeutil, transcript
+from . import coverage, procinfo, state, store, timeutil, transcript
 from .events import PARTIAL, UNAVAILABLE, detect_outcome, make_event
 from .paths import Paths, safe_name
 from .redact import SENSITIVE_FILE_PLACEHOLDER, mentions_sensitive_file, redact_text
+from .sync import launcher
+from .sync import state as syncstate
+from .sync.config import SyncPaths
 
 COMMON_FIELDS = {"session_id", "transcript_path", "cwd", "hook_event_name", "model",
                  "permission_mode", "turn_id"}
@@ -40,8 +43,12 @@ SHORT_BUDGET_ON = {"Interrupt", "SessionEnd"}  # Codex caps these hooks at 3 s
 LONG_BUDGET, SHORT_BUDGET = 8 * 1024 * 1024, 2 * 1024 * 1024
 
 NOTICE_RECORDING = "● Codex Task Recorder 正在本地记录本会话（只保存在本机）。停止：双击「停止记录.cmd」"
+NOTICE_SYNCING = ("● Codex Task Recorder 正在记录本会话，并按你的授权同步到后台。"
+                  "暂停同步：双击「暂停同步.cmd」")
 NOTICE_NOT_ENABLED = ("Codex Task Recorder 已安装，但尚未开启记录，不会记录本会话。"
                       "如需开启，请双击安装目录中的「开始记录.cmd」。")
+# A host plugin (the Codex 助手包 bundle) passes its own wording; None turns a notice off.
+NOTICES = {"recording": NOTICE_RECORDING, "syncing": NOTICE_SYNCING, "not_enabled": NOTICE_NOT_ENABLED}
 
 
 def main(stdin=None, stdout=None, paths: Paths | None = None, env=None) -> int:
@@ -66,20 +73,22 @@ def main(stdin=None, stdout=None, paths: Paths | None = None, env=None) -> int:
     return 0
 
 
-def handle(payload: dict, paths: Paths, env, started: float) -> dict | None:
+def handle(payload: dict, paths: Paths, env, started: float, notices: dict | None = None) -> dict | None:
     if env.get("CTR_DISABLE") == "1":
         return None
+    texts = {**NOTICES, **(notices or {})}
     name = str(payload.get("hook_event_name") or "Unknown")
     sid = payload.get("session_id") or ""
     st = state.load(paths.state)
     if st is None:  # never consented: record nothing, tell the user once per session
-        if name == "UserPromptSubmit" and sid and _first_notice(paths, sid):
-            return {"systemMessage": NOTICE_NOT_ENABLED}
+        if texts["not_enabled"] and name == "UserPromptSubmit" and sid and _first_notice(paths, sid):
+            return {"systemMessage": texts["not_enabled"]}
         return None
     if not state.is_recording(st) or not state.cwd_in_scope(st, payload.get("cwd")):
         return None
 
     sid = sid or "unknown-session"
+    sync_st = _sync_state(paths)
     out = None
     with store.session(paths, sid) as h:
         meta = h.cursor.setdefault("meta", {})
@@ -88,17 +97,41 @@ def handle(payload: dict, paths: Paths, env, started: float) -> dict | None:
         events += _track_model(payload, h.cursor, meta)
         if name in INGEST_ON:
             events += _ingest(payload, st, h.cursor, meta, name)
-        if name == "UserPromptSubmit" and kind == STANDARD and not h.cursor.get("notice_shown"):
-            h.cursor["notice_shown"] = True
-            out = {"systemMessage": NOTICE_RECORDING}
+        notice = _notice(h.cursor, syncstate.is_on(sync_st), texts) if (
+            name == "UserPromptSubmit" and kind == STANDARD) else None
+        if notice:
+            out = {"systemMessage": notice}
             events.append(make_event("recorder_notice", session_id=sid, source_type="derived",
                                      source_name="recorder", turn_id=payload.get("turn_id"),
-                                     meta=meta, data={"channel": "systemMessage",
-                                                      "message": NOTICE_RECORDING}))
+                                     meta=meta, data={"channel": "systemMessage", "message": notice}))
         events.append(_invocation(payload, env, started, out is not None, meta))
-        _stamp_kind(events, kind)
+        _stamp_model(events, h.cursor.get("hook_model"))
+        _finish(events, h.cursor, kind, sid, meta)
         h.append(events)
+    if syncstate.wants_worker(sync_st):
+        try:
+            launcher.kick(paths, sync_st)
+        except Exception as exc:  # noqa: BLE001 - uploading is never worth breaking a hook
+            _log(paths, name, exc)
     return out
+
+
+def _sync_state(paths: Paths) -> syncstate.SyncState | None:
+    try:
+        return syncstate.load(SyncPaths(paths))
+    except Exception:  # noqa: BLE001 - unreadable sync state means sync is off
+        return None
+
+
+def _notice(cursor: dict, syncing: bool, texts: dict = NOTICES) -> str | None:
+    """The in-App notice, once per session; once more if sync is switched on mid-session."""
+    if syncing and not cursor.get("sync_notice_shown"):
+        cursor["sync_notice_shown"] = cursor["notice_shown"] = True
+        return texts["syncing"]
+    if not cursor.get("notice_shown"):
+        cursor["notice_shown"] = True
+        return texts["recording"]
+    return None
 
 
 def _session_kind(cursor: dict, payload: dict) -> str:
@@ -113,6 +146,20 @@ def _session_kind(cursor: dict, payload: dict) -> str:
 def _stamp_kind(events: list[dict], kind: str) -> None:
     for e in events:
         e["session_kind"] = kind
+
+
+def _stamp_model(events: list[dict], hook_model: str | None) -> None:
+    """Hook and derived events take the session's current hook model. Transcript events keep
+    the model of their own turn (set by the transcript reader), or null when it is unknown."""
+    for e in events:
+        if e["model"] is None and e["source"]["type"] != "transcript":
+            e["model"] = hook_model
+
+
+def _finish(events: list[dict], cursor: dict, kind: str, sid: str, meta: dict) -> None:
+    """Add turn_coverage for turns that ended in this batch, then stamp the session kind."""
+    events += coverage.update(cursor, events, kind == BACKGROUND, sid, meta)
+    _stamp_kind(events, kind)
 
 
 def hook_events(payload: dict, meta: dict) -> list[dict]:
@@ -249,7 +296,8 @@ def flush_transcripts(paths: Paths, st: state.State) -> int:
             events: list[dict] = []
             for path, tcur in list(h.cursor.get("transcripts", {}).items()):
                 events += _ingest_path(path, tcur.get("agent_id"), sid, st, h.cursor, meta, LONG_BUDGET)
-            _stamp_kind(events, h.cursor.get("session_kind", STANDARD))
+            _stamp_model(events, h.cursor.get("hook_model"))
+            _finish(events, h.cursor, h.cursor.get("session_kind", STANDARD), sid, meta)
             h.append(events)
             added += len(events)
     return added
