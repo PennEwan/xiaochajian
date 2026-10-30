@@ -1,7 +1,7 @@
 {
   "name": "codex-native-assist",
-  "version": "0.5.1",
-  "description": "CDK 充值：在 Codex 里说「充值」，弹出本地小窗口，输入充值账号和 CDK 完成充值。",
+  "version": "0.5.2",
+  "description": "CDK 充值：点侧边栏的「CDK 充值」，在本地小窗口里输入充值账号和 CDK 完成充值。",
   "author": {
     "name": "Codex Native Assist"
   },
@@ -10,20 +10,17 @@
     "recharge",
     "mcp"
   ],
-  "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "CDK 充值",
-    "shortDescription": "输入 CDK 完成充值",
-    "longDescription": "在 Codex 里说「充值」，弹出本地小窗口，输入充值账号和 CDK 即完成充值。账号与 CDK 只发给充值服务，不进入对话、不写日志、不被记住。窗口里有一条 ChatGPT 登录页链接，点击后在你自己的浏览器里打开，需要什么内容由你自己复制；本插件不读取浏览器内容、不读剪贴板。",
+    "shortDescription": "侧边栏打开充值窗口，输入 CDK 完成充值",
+    "longDescription": "点 Codex 侧边栏的「CDK 充值」打开本地小窗口，输入充值账号和 CDK 即完成充值。账号与 CDK 只发给充值服务，不进入对话、不写日志、不被记住。窗口里有一条 ChatGPT 登录页链接，点击后在你自己的浏览器里打开，需要什么内容由你自己复制；本插件不读取浏览器内容、不读剪贴板。本插件不向模型提供任何工具，模型看不到也不需要知道充值窗口。",
     "developerName": "CDK 充值",
     "category": "Productivity",
     "capabilities": [
       "Interactive",
       "Read"
     ],
-    "defaultPrompt": [
-      "充值"
-    ]
+    "defaultPrompt": []
   }
 }

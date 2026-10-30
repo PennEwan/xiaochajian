@@ -38,6 +38,10 @@ namespace CodexNativeAssist
 
         public static List<object> List()
         {
+            // The model sees no tools at all: the sidebar app owns the only entry point, and it calls
+            // open_recharge_window itself through the MCP Apps bridge. `visibility: ["app"]` is what keeps
+            // a tool out of the model's list (same mechanism as the launcher below). Recording stays
+            // reachable from the consent window and `assist.exe pause`; the model is not told about it.
             return new List<object>
             {
                 Json.D("name", "open_recharge_window",
@@ -47,50 +51,23 @@ namespace CodexNativeAssist
                                    "默认等待用户在窗口中完成或关闭后返回兑换结果（不含 CDK）。",
                     "inputSchema", Schema(Json.D("wait", Json.D("type", "boolean",
                         "description", "true（默认）：等窗口关闭后返回结果；false：打开窗口后立即返回。"))),
-                    "annotations", Annot("打开 CDK 充值窗口", false, false, false, true)),
-                Json.D("name", "open_recording_settings",
-                    "title", "任务记录设置",
-                    "description", "打开本地「任务记录授权」窗口：用户在窗口中阅读说明、选择范围并亲自勾选同意后才会开启记录；" +
-                                   "也可以在窗口中关闭记录或删除已记录的数据。返回窗口关闭后的记录状态。",
-                    "inputSchema", Schema(Json.D("suggested_folder", Json.D("type", "string",
-                        "description", "可选：用户想只记录某个项目时，传该项目的绝对路径（通常是当前工作目录）。窗口会预选它，仍需用户本人确认。"))),
-                    "annotations", Annot("任务记录设置", false, false, false, false)),
-                Json.D("name", "recording_status",
-                    "title", "任务记录状态",
-                    "description", "查看任务记录是否开启、授权范围、已记录的会话与条数、采集进程是否在运行。",
-                    "inputSchema", Schema(null),
-                    "annotations", Annot("任务记录状态", true, false, true, false)),
-                Json.D("name", "pause_recording",
-                    "title", "关闭任务记录",
-                    "description", "立即关闭任务记录（之后的内容不再采集；已记录的数据保留在本机，可在设置窗口中删除）。",
-                    "inputSchema", Schema(null),
-                    "annotations", Annot("关闭任务记录", false, false, true, false)),
-                Json.D("name", "plugin_diagnostics",
-                    "title", "插件诊断",
-                    "description", "返回本插件 MCP Server 的进程信息：当前进程、所有存活实例、谁在负责采集。用于排查问题。",
-                    "inputSchema", Schema(null),
-                    "annotations", Annot("插件诊断", true, false, true, false)),
+                    "annotations", Annot("打开 CDK 充值窗口", false, false, false, true),
+                    "_meta", Json.D("ui", Json.D("visibility", new List<object> { "app" }))),
                 AppEntry.LauncherToolDefinition(),
             };
         }
 
         public static Result Call(string name, Dictionary<string, object> args, McpServer server)
         {
-            // Codex keeps a disabled plugin's server (and tools) alive in sessions that were already open;
-            // honour the user's switch for anything that opens a window. Status and "off" stay available.
-            if ((name == "open_recharge_window" || name == "open_recording_settings") && Collector.PluginDisabledInCodex())
+            // Only the sidebar app calls this, and only for the recharge window. There is no model-facing
+            // tool: recording is not reachable from the MCP surface at all (consent window or `assist.exe
+            // pause` instead), so a name that is not listed here is simply unknown.
+            if (name == "open_recharge_window" && Collector.PluginDisabledInCodex())
                 return Result.Error("本插件已在 Codex 插件页中禁用。如需使用，请先重新启用。");
             switch (name)
             {
                 case "open_recharge_window": return OpenRecharge(Json.Bool(args, "wait", true));
                 case AppEntry.LauncherTool: return AppEntry.CallLauncher();
-                case "open_recording_settings": return OpenConsent(Json.Str(args, "suggested_folder"));
-                case "recording_status": return Status();
-                case "pause_recording": return Pause();
-                case "plugin_diagnostics":
-                    var snap = Diagnostics.Snapshot();
-                    snap["this_instance"] = server.Self();
-                    return Result.Ok(Json.Stringify(snap), snap);
                 default: return Result.Error("未知工具：" + name);
             }
         }

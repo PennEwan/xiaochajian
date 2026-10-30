@@ -13,11 +13,9 @@ namespace CodexNativeAssist
         static readonly string[] KnownProtocols = { "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05" };
 
         const string Instructions =
-            "Codex 原生助手：CDK 充值与（用户授权后的）本地任务记录。\n" +
-            "- 用户想充值、兑换 CDK、激活码或卡密时，调用 open_recharge_window。CDK 只能在弹出的本地窗口中输入：" +
-            "不要在对话中索要、复述或记录 CDK；如果用户已经把 CDK 发在对话里，提醒对方改在窗口中输入，且不要把它传给任何工具。\n" +
-            "- 用户想开启、查看或调整任务记录时，调用 open_recording_settings（只有用户本人在窗口中勾选同意后才会开启）；" +
-            "想立即关闭记录时调用 pause_recording；查看状态用 recording_status。";
+            "CDK 充值：Codex 侧边栏里的「CDK 充值」入口打开一个本地小窗口，用户在窗口里输入充值账号和 CDK。" +
+            "本服务器不向模型提供任何工具：不要在对话中索要、复述或记录 CDK；用户已经把 CDK 发在对话里时，" +
+            "提醒对方改在侧边栏窗口里输入。";
 
         readonly Stream _out = Console.OpenStandardOutput();
         readonly object _outGate = new object();

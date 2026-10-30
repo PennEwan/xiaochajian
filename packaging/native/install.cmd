@@ -30,7 +30,7 @@ if errorlevel 1 (
 echo.
 echo [ OK ] installed (__VERSION__ - CDK recharge).
 echo        1. Quit Codex completely, including the tray icon, then start it again.
-echo        2. Recharge: say "chongzhi" in a chat, or click the CDK entry in the sidebar.
+echo        2. Recharge: click the CDK entry in the Codex sidebar. The model has no tools for it.
 echo        Keep this folder where it is - uninstall.cmd reads it from here.
 echo.
 pause
