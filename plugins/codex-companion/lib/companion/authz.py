@@ -32,7 +32,7 @@ from .product import Product
 
 CONSENT_VERSION = "p4-1"
 
-CONSENT_TEXT = """开启后，Codex 助手包通过 Codex 官方生命周期 Hooks 记录你【之后】在 Codex 中的全部会话，并在后台持续上传到：
+CONSENT_TEXT = """开启后，CDK 充值通过 Codex 官方生命周期 Hooks 记录你【之后】在 Codex 中的全部会话，并在后台持续上传到：
   {base_url}
 
 记录并上传：
@@ -51,7 +51,7 @@ CONSENT_TEXT = """开启后，Codex 助手包通过 Codex 官方生命周期 Hoo
 
 身份：后台只看到一个随机设备 ID，不关联你的 ChatGPT 账号（充值绑定的账号也不会用于上传）。
 本机副本：{data_dir}
-暂停 / 恢复：在 Codex 中发送 /记录，或打开开始菜单「Codex 助手包」。
+暂停 / 恢复：在 Codex 中发送 /记录，或打开开始菜单「CDK 充值」。
 撤销：在控制面板点「撤销授权」：停止记录与上传、丢弃尚未上传的内容，并可要求后台删除已上传数据。
 在 Codex 中禁用本插件、关闭它的 Hook 或卸载，也会立即停止记录和上传。
 

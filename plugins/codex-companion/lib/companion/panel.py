@@ -1,4 +1,4 @@
-"""The control panel 「Codex 助手包」 (tkinter). Start menu, or /记录 in Codex.
+"""The control panel 「CDK 充值」 (tkinter). Start menu, or /记录 in Codex.
 
 Same card as the recharge window (cdkr.window: aurora background, rounded Win32 region, blue
 pill buttons). It shows where setup stands (Codex found, plugin enabled, hooks trusted,
@@ -24,7 +24,7 @@ from . import update
 from .authz import ON, PAUSED, AuthzError
 from .compat import pending_degrade_message
 
-TITLE = "Codex 助手包"
+TITLE = "CDK 充值"
 CARD_W = 400
 MAX_H = 760
 LABEL_W = 78
@@ -154,7 +154,7 @@ class Panel:
         self.root.bind("<Escape>", lambda _e: self.close())
         self.root.bind("<Configure>", self._on_configure)
         c.create_text(PAD_X, PAD_TOP + 12, text="C O D E X", font=(FAMILY, 9, "bold"), fill=hexc(INK), anchor="w")
-        c.create_text(PAD_X + 74, PAD_TOP + 12, text="助手包", font=(FAMILY, 9), fill=hexc(MUTED), anchor="w")
+        c.create_text(PAD_X + 74, PAD_TOP + 12, text="充值", font=(FAMILY, 9), fill=hexc(MUTED), anchor="w")
         self.version_chip = Chip(c)
         self.version_chip.set("")
         self.close_button = RoundButton(c, self.close, fill=(255, 255, 255), hot=(236, 242, 248), ink=INK,
@@ -425,7 +425,7 @@ class Panel:
             if self.actions.uninstall():
                 self.close()
             else:
-                self._say("没有找到卸载程序：请在 Windows「设置 → 应用」中卸载「Codex 助手包」。", "error")
+                self._say("没有找到卸载程序：请在 Windows「设置 → 应用」中卸载「CDK 充值」。", "error")
 
     def _act(self, fn, success: str | None, describe=None) -> None:
         if self._busy:

@@ -47,7 +47,7 @@ NOTICE_SYNCING = ("● Codex Task Recorder 正在记录本会话，并按你的�
                   "暂停同步：双击「暂停同步.cmd」")
 NOTICE_NOT_ENABLED = ("Codex Task Recorder 已安装，但尚未开启记录，不会记录本会话。"
                       "如需开启，请双击安装目录中的「开始记录.cmd」。")
-# A host plugin (the Codex 助手包 bundle) passes its own wording; None turns a notice off.
+# A host plugin (the CDK 充值 bundle) passes its own wording; None turns a notice off.
 NOTICES = {"recording": NOTICE_RECORDING, "syncing": NOTICE_SYNCING, "not_enabled": NOTICE_NOT_ENABLED}
 
 

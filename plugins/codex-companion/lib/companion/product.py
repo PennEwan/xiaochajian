@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
-NAME = "Codex 助手包"
+NAME = "CDK 充值"
 PRODUCT_ID = "codex-companion"
 MARKETPLACE = "codex-companion"
 PLUGIN = "codex-companion"

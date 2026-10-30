@@ -61,7 +61,7 @@ TOOLS: tuple[dict[str, Any], ...] = (
     },
     {
         "name": "collector_open_panel",
-        "description": "打开 Codex 助手包的控制面板（本地窗口），用于查看状态、恢复记录或撤销授权。",
+        "description": "打开 CDK 充值的控制面板（本地窗口），用于查看状态、恢复记录或撤销授权。",
         "inputSchema": _no_args(),
     },
     {

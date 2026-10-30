@@ -1,7 +1,7 @@
 """`python -m companion …` — used by the installer, the Start-menu shortcuts and the test scripts.
 
     setup install|remove-legacy|prepare-upgrade|uninstall [--result FILE] …
-    panel                          the control panel (Start menu「Codex 助手包」, /记录)
+    panel                          the control panel (Start menu「CDK 充值」, /记录)
     status [--json]                everything the panel shows, as text or JSON
     collector status|start|stop    the independent collector's logon task (records without the plugin)
     authz enable|pause|resume|revoke …   the one switch, scripted (enable needs --i-consent)
@@ -311,7 +311,7 @@ def cmd_collector(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    parser = argparse.ArgumentParser(prog="companion", description="Codex 助手包")
+    parser = argparse.ArgumentParser(prog="companion", description="CDK 充值")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("setup", help="安装程序调用的步骤")

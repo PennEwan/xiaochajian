@@ -91,8 +91,8 @@ def explain(summary: dict) -> str:
 NEXT_STEPS = """
 下一步（与安装包一致）：
   1. 完全退出并重新打开 Codex（托盘里也要退）
-  2. 插件 → Codex 助手包 → 信任 MCP 服务器 companion_collector（只有一个，没有 12 个 Hook）
-  3. 开始菜单「Codex 助手包」→「重新检测」→「已在 Codex 中信任插件的 MCP 服务器」应显示完成
+  2. 插件 → CDK 充值 → 信任 MCP 服务器 companion_collector（只有一个，没有 12 个 Hook）
+  3. 开始菜单「CDK 充值」→「重新检测」→「已在 Codex 中信任插件的 MCP 服务器」应显示完成
 """
 
 

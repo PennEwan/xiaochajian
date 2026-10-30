@@ -1,4 +1,4 @@
-"""Codex hook entry point of 「Codex 助手包」: every lifecycle event runs this script with the
+"""Codex hook entry point of 「CDK 充值」: every lifecycle event runs this script with the
 plugin's own Python (runtime\\python.exe, see hooks.json).
 
 It must never break the user's session: whatever happens, it exits 0. If the plugin's library
@@ -20,7 +20,7 @@ def _fallback(raw: bytes) -> None:
         payload = json.loads(raw.decode("utf-8", "replace"))
         prompt = payload.get("prompt") if isinstance(payload, dict) else None
         if isinstance(prompt, str) and prompt.lstrip().startswith(_COMMANDS):
-            reason = "Codex 助手包没能加载，这条消息已拦下、没有发给模型。请重新安装 Codex 助手包。"
+            reason = "CDK 充值没能加载，这条消息已拦下、没有发给模型。请重新安装 CDK 充值。"
             sys.stdout.write(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=True))
             sys.stdout.flush()
     except BaseException:  # noqa: BLE001

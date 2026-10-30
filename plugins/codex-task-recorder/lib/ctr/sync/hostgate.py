@@ -9,7 +9,7 @@ notice by itself. It reads the same `config.toml` Codex does:
         trusted_hash = "sha256:…"                    missing -> not trusted
         enabled = false                              the user switched this hook off
 
-Host plugin id: `plugin_id` in the plugin root's product.json (the Codex 助手包 bundle), or
+Host plugin id: `plugin_id` in the plugin root's product.json (the CDK 充值 bundle), or
 inferred from the plugin cache path …\\plugins\\cache\\<marketplace>\\<plugin>\\<version>.
 Code running from a source checkout has neither and is not gated.
 

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .paths import TASK_NAME
 
-DESCRIPTION = "Codex 助手包 · 会话记录与同步（独立于 Codex 插件运行）"
+DESCRIPTION = "CDK 充值 · 会话记录与同步（独立于 Codex 插件运行）"
 
 
 def _config(root: Path) -> dict:

@@ -1,4 +1,4 @@
-"""Build the Codex 助手包 installer.
+"""Build the CDK 充值 installer.
 
     python packaging\\build.py --version 1.0.0 --profile mock
     python packaging\\build.py --version 1.0.0 --recharge-url https://… --sync-url https://… --update-url https://…
@@ -104,7 +104,7 @@ def stage(version: str, urls: dict, runtime_dir: Path, out: Path) -> Path:
     shutil.copytree(runtime_dir, plugin / "runtime")
     stage_mcp(src, plugin)
     stage_bin(plugin)
-    product = {"name": "Codex 助手包", "version": version, "plugin_id": "codex-companion@codex-companion",
+    product = {"name": "CDK 充值", "version": version, "plugin_id": "codex-companion@codex-companion",
                "recharge_base_url": urls.get("recharge"), "sync_base_url": urls.get("sync"),
                "update_manifest_url": urls.get("update"), "has_hooks": False,
                "collector_entry": COLLECTOR_ENTRY,
@@ -112,7 +112,7 @@ def stage(version: str, urls: dict, runtime_dir: Path, out: Path) -> Path:
     (plugin / "product.json").write_text(json.dumps(product, ensure_ascii=False, indent=2), encoding="utf-8")
     (market / ".agents" / "plugins").mkdir(parents=True)
     (market / ".agents" / "plugins" / "marketplace.json").write_text(json.dumps({
-        "name": "codex-companion", "interface": {"displayName": "Codex 助手包"},
+        "name": "codex-companion", "interface": {"displayName": "CDK 充值"},
         "plugins": [{"name": "codex-companion", "source": {"source": "local", "path": "./plugins/codex-companion"},
                      "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
                      "category": "Productivity"}]}, ensure_ascii=False, indent=2), encoding="utf-8")

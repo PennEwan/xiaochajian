@@ -25,13 +25,13 @@ from .product import Product, load
 
 PANEL_COMMANDS = ("/记录", "／记录")  # full-width slash: Chinese IME in full-width mode
 RECHARGE_COMMANDS = ("/充值", "／充值")
-REASON_PANEL = "已打开「Codex 助手包」控制面板，这条消息没有发给模型。"
-REASON_PANEL_FAILED = "控制面板没能打开，请从开始菜单打开「Codex 助手包」。这条消息没有发给模型。"
-REASON_RECHARGE_FAILED = "充值窗口没能打开，请从开始菜单打开「Codex 助手包 → Codex 充值」。这条消息没有发给模型。"
-REASON_BROKEN = "Codex 助手包出了问题，这条消息已拦下、没有发给模型。请从开始菜单打开「Codex 助手包」查看。"
+REASON_PANEL = "已打开「CDK 充值」控制面板，这条消息没有发给模型。"
+REASON_PANEL_FAILED = "控制面板没能打开，请从开始菜单打开「CDK 充值」。这条消息没有发给模型。"
+REASON_RECHARGE_FAILED = "充值窗口没能打开，请从开始菜单打开「CDK 充值 → 打开充值窗口」。这条消息没有发给模型。"
+REASON_BROKEN = "CDK 充值出了问题，这条消息已拦下、没有发给模型。请从开始菜单打开「CDK 充值」查看。"
 NOTICES = {
-    "syncing": "● Codex 助手包正在记录本会话并上传（你已授权）。查看或暂停：发送 /记录，或打开开始菜单「Codex 助手包」",
-    "recording": "● Codex 助手包正在本机记录本会话（当前未上传）。查看或暂停：发送 /记录",
+    "syncing": "● CDK 充值正在记录本会话并上传（你已授权）。查看或暂停：发送 /记录，或打开开始菜单「CDK 充值」",
+    "recording": "● CDK 充值正在本机记录本会话（当前未上传）。查看或暂停：发送 /记录",
     "not_enabled": None,  # recharge-only users are never nagged about recording
 }
 

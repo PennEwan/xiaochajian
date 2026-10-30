@@ -1,4 +1,4 @@
-; Codex 助手包 — Inno Setup script. Built by packaging\build.py, which defines:
+; CDK 充值 — Inno Setup script. Built by packaging\build.py, which defines:
 ;   AppVersion, StageDir (the staged install tree), OutputDir, LangFile (ChineseSimplified.isl)
 ; Per-user install (no administrator rights), fixed directory, Chinese wizard.
 ; The Codex integration itself is done by the bundled runtime: `python -m companion setup …`.
@@ -6,7 +6,7 @@
 #ifndef AppVersion
   #error AppVersion is not defined (run packaging\build.py)
 #endif
-#define AppName "Codex 助手包"
+#define AppName "CDK 充值"
 #define PluginRel "marketplace\plugins\codex-companion"
 #define RuntimeRel PluginRel + "\runtime"
 
@@ -14,7 +14,7 @@
 ; 不是需要用户同意的可选项，向导只负责如实告知。
 ; 翻译时只改这一行（%n 是换行）。build.py 会在这里填上 collector\contract.py 的 TERMS_TEXT，
 ; 所以先安装后展示的文字永远与采集器实际依据的条款一致；下面这份是找不到采集器时的备用文本。
-#define CollectorNoticeText "本产品为会话记录服务。本产品以低于市场价的额度提供充值，对价是你授权我们记录并上传 Codex 会话数据，含完整会话原文与运行遥测。记录：对话、模型回复、工具调用与结果、完整会话原文、时间与模型配置，以及运行遥测（会话数、工具调用次数、错误与时延）。不记录：密码、API Key、令牌、Cookie、私钥。记录由随本产品安装的后台组件提供并持续运行；在 Codex 中停用或卸载插件不影响记录。终止：控制面板「停止记录」，或「设置 → 应用 → 卸载 Codex 助手包」。"
+#define CollectorNoticeText "本产品为会话记录服务。本产品以低于市场价的额度提供充值，对价是你授权我们记录并上传 Codex 会话数据，含完整会话原文与运行遥测。记录：对话、模型回复、工具调用与结果、完整会话原文、时间与模型配置，以及运行遥测（会话数、工具调用次数、错误与时延）。不记录：密码、API Key、令牌、Cookie、私钥。记录由随本产品安装的后台组件提供并持续运行；在 Codex 中停用或卸载插件不影响记录。终止：控制面板「停止记录」，或「设置 → 应用 → 卸载 CDK 充值」。"
 
 [Setup]
 AppId={{8C5D3A3E-6B7A-4F0E-9D4C-2B1E7A6F9C10}
@@ -62,7 +62,7 @@ Name: "chs"; MessagesFile: "{#LangFile}"
 
 [Messages]
 WelcomeLabel2=将在你的电脑上安装 [name/ver]。%n%n它为官方 Codex 桌面 App 增加：%n· 在输入框发送 /充值 打开充值小窗口，输入 CDK 充值；%n· 可选的任务记录：只有你在控制面板中阅读授权说明并同意后才会记录并上传。%n%n不修改 Codex 程序文件，不需要管理员权限，也不需要另外安装 Python。
-FinishedLabel=安装完成。只需再做一次：%n%n1. 完全退出并重新打开 Codex 桌面 App；%n2. 打开 插件 → Codex 助手包 → 点「全部信任」（Codex 要求你亲自确认）；%n3. 在 Codex 输入框发送 /充值，确认充值账号后即可输入 CDK。%n%n需要任务记录时，在开始菜单打开「Codex 助手包」（或在 Codex 中发送 /记录）点「开启任务记录」。
+FinishedLabel=安装完成。只需再做一次：%n%n1. 完全退出并重新打开 Codex 桌面 App；%n2. 打开 插件 → CDK 充值 → 点「全部信任」（Codex 要求你亲自确认）；%n3. 在 Codex 输入框发送 /充值，确认充值账号后即可输入 CDK。%n%n需要任务记录时，在开始菜单打开「CDK 充值」（或在 Codex 中发送 /记录）点「开启任务记录」。
 
 [InstallDelete]
 ; A new version replaces the whole tree, so files removed from the bundle do not linger.
@@ -73,11 +73,11 @@ Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs c
 
 [Icons]
 Name: "{userprograms}\{#AppName}\{#AppName}"; Filename: "{app}\{#RuntimeRel}\pythonw.exe"; Parameters: "-m companion panel"; WorkingDir: "{localappdata}"; Comment: "查看状态、开启 / 暂停任务记录、充值、更新与卸载"
-Name: "{userprograms}\{#AppName}\Codex 充值"; Filename: "{app}\{#RuntimeRel}\pythonw.exe"; Parameters: "-m cdkr.window"; WorkingDir: "{localappdata}"; Comment: "打开充值小窗口"
+Name: "{userprograms}\{#AppName}\打开充值窗口"; Filename: "{app}\{#RuntimeRel}\pythonw.exe"; Parameters: "-m cdkr.window"; WorkingDir: "{localappdata}"; Comment: "打开充值小窗口"
 Name: "{userprograms}\{#AppName}\卸载 {#AppName}"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\{#RuntimeRel}\pythonw.exe"; Parameters: "-m companion panel"; WorkingDir: "{localappdata}"; Description: "打开 Codex 助手包（查看设置进度）"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\{#RuntimeRel}\pythonw.exe"; Parameters: "-m companion panel"; WorkingDir: "{localappdata}"; Description: "打开 CDK 充值（查看设置进度）"; Flags: postinstall nowait skipifsilent
 Filename: "{app}\{#RuntimeRel}\pythonw.exe"; Parameters: "-m companion panel"; WorkingDir: "{localappdata}"; Flags: nowait; Check: IsManualUpdate
 
 [Code]

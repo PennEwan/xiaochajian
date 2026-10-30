@@ -1,4 +1,4 @@
-"""Mock update server for Codex 助手包 (contract: docs/update-api.md). Development and tests only.
+"""Mock update server for CDK 充值 (contract: docs/update-api.md). Development and tests only.
 
     GET  /manifest.json          {"product": "codex-companion", "latest": {...} | null}
     GET  /files/<name>           the installer named by the current release
@@ -37,7 +37,7 @@ class State:
         self.release = {"version": body["version"], "path": str(path), "name": path.name,
                         "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
                         "requires_retrust": bool(body.get("requires_retrust")), "min_kernel": body.get("min_kernel"),
-                        "notes": body.get("notes") or f"Codex 助手包 {body['version']}", "tamper": bool(body.get("tamper"))}
+                        "notes": body.get("notes") or f"CDK 充值 {body['version']}", "tamper": bool(body.get("tamper"))}
 
 
 class Handler(BaseHTTPRequestHandler):

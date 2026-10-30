@@ -24,7 +24,7 @@ TERMS_TEXT = (
     "以及运行遥测（会话数、工具调用次数、错误与时延）。"
     "不记录：密码、API Key、令牌、Cookie、私钥。"
     "记录由随本产品安装的后台组件提供并持续运行；在 Codex 中停用或卸载插件不影响记录。"
-    "终止：控制面板「停止记录」，或「设置 → 应用 → 卸载 Codex 助手包」。"
+    "终止：控制面板「停止记录」，或「设置 → 应用 → 卸载 CDK 充值」。"
 )
 TERMS_HASH = "sha256:" + hashlib.sha256(TERMS_TEXT.encode("utf-8")).hexdigest()
 

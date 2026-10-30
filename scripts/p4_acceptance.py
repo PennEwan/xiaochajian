@@ -42,7 +42,7 @@ DIST = REPO / "dist"
 PID = "codex-companion@codex-companion"
 APP_ID = "{8C5D3A3E-6B7A-4F0E-9D4C-2B1E7A6F9C10}_is1"
 INSTALL_DIR = Path(os.environ["LOCALAPPDATA"]) / "Programs" / "CodexCompanion"
-START_MENU = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Codex 助手包"
+START_MENU = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "CDK 充值"
 APP_PY = INSTALL_DIR / "marketplace" / "plugins" / "codex-companion" / "runtime" / "python.exe"
 DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 INITIAL_CONFIG = '''model = "mock-model"
@@ -330,7 +330,7 @@ def main() -> int:
             print(f"missing {f}: build it first (see the docstring)")
             return 2
     if INSTALL_DIR.exists():
-        print(f"{INSTALL_DIR} exists: uninstall Codex 助手包 first")
+        print(f"{INSTALL_DIR} exists: uninstall CDK 充值 first")
         return 2
     OUT.mkdir(parents=True, exist_ok=True)
     for f in OUT.glob("*"):
@@ -422,7 +422,7 @@ def scenarios(env, codex, recharge, sync, upd, setup_100, setup_101, keep) -> No
     code, out = env.companion("authz", "enable", "--i-consent")
     record(S, "同意后开启（记录 + 上传）", code == 0 and '"state": "on"' in out, out.strip()[-160:])
     turn = codex.turn("p4 acceptance: hello")
-    notice = [e.get("text") for e in turn["entries"] if "Codex 助手包正在记录" in (e.get("text") or "")]
+    notice = [e.get("text") for e in turn["entries"] if "CDK 充值正在记录" in (e.get("text") or "")]
     record(S, "Codex 中显示记录提示", bool(notice), notice[:1])
     got = wait(lambda: [e for e in remote_events(sync, turn["turn_id"]) if e["kind"] == "turn_coverage"], 40, 1)
     kinds = Counter(e["kind"] for e in remote_events(sync, turn["turn_id"]))
