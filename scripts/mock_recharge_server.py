@@ -40,6 +40,7 @@ class State:
         self.client_headers: list[str] = []
         self.authorizations: list[str] = []
         self.submissions: list[dict] = []           # request bodies of /v1/submissions (memory only)
+        self.session_tokens: list[int] = []         # length of each session_token seen (never the value)
 
     def consumed(self, cdk: str) -> int:
         return sum(1 for (c, _), r in self.by_key.items() if c == cdk and r["status"] == "succeeded")
@@ -117,6 +118,9 @@ class Handler(BaseHTTPRequestHandler):
             with self.state.lock:
                 self.state.bindings.clear()
             return self._send(200, {"ok": True})
+        if self.path == "/_mock/session-tokens":
+            with self.state.lock:
+                return self._send(200, {"lengths": list(self.state.session_tokens)})
         if self.path == "/_mock/fail-next":
             with self.state.lock:
                 self.state.fail_next = body or {"status": 503}
@@ -165,6 +169,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _redeem(self, body: dict):
         cdk, target = body.get("cdk"), body.get("account")
+        token = body.get("session_token")
+        with self.state.lock:
+            self.state.session_tokens.append(len(token) if isinstance(token, str) else 0)
         if target is None:  # legacy callers, including the native helper
             target = body.get("chatgpt_account_id")
         if self.headers.get("Authorization"):  # legacy: the native 小助手 still binds first

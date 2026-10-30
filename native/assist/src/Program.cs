@@ -15,7 +15,7 @@ namespace CodexNativeAssist
 {
     static class Program
     {
-        public const string Version = "0.4.1";
+        public const string Version = "0.5.1";
 
         [DllImport("user32.dll")]
         static extern bool SetProcessDPIAware();
@@ -111,14 +111,12 @@ namespace CodexNativeAssist
                         Cli.WriteLine(Json.Stringify(new Collector().RunOnce()));
                         return 0;
                     default:
+                        // A double-click (no argument) opens the recharge window, the only thing this component
+                        // is for; a mistyped subcommand gets one line on stderr instead of a dialog.
                         Gui();
-                        MessageBox.Show("这是 Codex 插件「Codex 原生助手」的组件。\n\n" +
-                                        "充值：在 Codex 中说「充值」。\n任务记录设置：在 Codex 中说「任务记录设置」。\n\n" +
-                                        "任务记录由独立的后台进程完成（任务计划程序里的 CodexNativeAssist\\Collector），" +
-                                        "关闭 Codex、禁用或卸载插件都不会让它停止；要停用它，在任务记录窗口点「关闭记录」" +
-                                        "或运行 assist.exe daemon-stop。",
-                                        "Codex 原生助手 " + Version, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return 0;
+                        if (args.Length == 0) return RechargeWindow.Run();
+                        Console.Error.WriteLine("unknown command: " + mode);
+                        return 2;
                 }
             }
             catch (Exception ex)

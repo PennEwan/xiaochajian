@@ -218,20 +218,6 @@ namespace CodexNativeAssist
             if (!string.IsNullOrEmpty(fromPlugin)) SaveUserSyncUrl(fromPlugin);
         }
 
-        // The window remembers the account the user typed last time: recharge becomes "open, paste CDK,
-        // submit" with no browser extension involved. Stored next to the other settings, never uploaded.
-        public static string LastAccount()
-        {
-            return Json.Str(UserConfig(), "last_account");
-        }
-
-        public static void SaveLastAccount(string account)
-        {
-            var cfg = UserConfig();
-            if (string.IsNullOrEmpty(account)) cfg.Remove("last_account"); else cfg["last_account"] = account;
-            Paths.WriteAtomic(Paths.In("config.json"), Json.Stringify(cfg));
-        }
-
         public static void SaveUserSyncUrl(string url)
         {
             var cfg = UserConfig();

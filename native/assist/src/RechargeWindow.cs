@@ -15,18 +15,19 @@ namespace CodexNativeAssist
         const string RedeemText = "确认提交", ReloadText = "重新读取";
         const string SessionUrl = "https://chatgpt.com/api/auth/session";
 
+        // One place for the vertical geometry; OnPaint and Relayout both read it.
+        const int AccountWellTop = 66, CdkWellTop = 130, WellHeight = 38, ButtonRowTop = 182, ButtonHeight = 36;
+
         readonly RechargeFlow _flow = new RechargeFlow();
         readonly TextBox _account = new TextBox();
         readonly Label _status = new Label(), _footer = new Label();
         readonly LinkLabel _link = new LinkLabel();
         readonly TextBox _cdk = new TextBox();
         readonly PillButton _action = new PillButton(), _close = new PillButton();
-        readonly PillButton _clip = new PillButton();
-        readonly BrowserSessionBridge _browserBridge;
         readonly float _s;
         readonly Bitmap _aurora;
         readonly Font _small, _smallBold, _tiny;
-        volatile bool _busy, _redeeming, _readingBrowser;
+        volatile bool _busy, _redeeming;
         string _state;
         bool _live;
         Outcome _last;
@@ -88,8 +89,7 @@ namespace CodexNativeAssist
 
         RechargeWindow()
         {
-            _browserBridge = new BrowserSessionBridge();
-            Text = "Codex 充值";
+            Text = "CDK 充值";
             using (var g = CreateGraphics()) _s = g.DpiX / 96f;
             Font = new Font(Card.Family, 9f);
             _small = new Font(Card.Family, 9f);
@@ -123,8 +123,7 @@ namespace CodexNativeAssist
             _account.Font = new Font(Card.Family, 11f);
             _account.MaxLength = 256;
             _account.ShortcutsEnabled = true;
-            _account.Location = new Point(P(Card.PadX + 13), P(Card.PadTop + 92) - _account.PreferredHeight / 2);
-            _account.Width = P(Card.Width - 2 * Card.PadX - 26);
+            _account.Width = P(Card.Width - 2 * Card.PadX - 26);   // placed by Relayout(), centred in its well
 
             _cdk.BorderStyle = BorderStyle.None;
             _cdk.BackColor = Card.WellBg;
@@ -132,17 +131,8 @@ namespace CodexNativeAssist
             _cdk.Font = new Font(Card.Family, 11f);
             _cdk.MaxLength = 200;
             _cdk.ShortcutsEnabled = true;
-            _cdk.Location = new Point(P(Card.PadX + 13), P(Card.PadTop + 149) - _cdk.PreferredHeight / 2);
-            _cdk.Width = P(Card.Width - 2 * Card.PadX - 26);
+            _cdk.Width = P(Card.Width - 2 * Card.PadX - 26);       // placed by Relayout()
 
-            _clip.Text = "从剪贴板读取";
-            _clip.Fill = Color.White;
-            _clip.Hot = Color.FromArgb(236, 242, 248);
-            _clip.InkColor = Card.Ink;
-            _clip.Font = _small;
-            _clip.TabStop = false;
-            _clip.Visible = false;
-            _clip.Click += delegate { ReadClipboardSession(); };
             _action.Font = new Font(Card.Family, 10f, FontStyle.Bold);
             _action.Text = ReloadText;
 
@@ -157,16 +147,16 @@ namespace CodexNativeAssist
             _link.ActiveLinkColor = Card.BlueHot;
             _link.VisitedLinkColor = Card.Blue;
             _link.LinkArea = new LinkArea(0, _link.Text.Length);
-            _link.LinkClicked += delegate { ReadSessionFromBrowser(); };
+            _link.LinkClicked += delegate { OpenSessionPage(); };
             foreach (var l in new[] { _status, _footer })
             {
                 l.AutoSize = true;
                 l.MaximumSize = new Size(P(Card.Width - 2 * Card.PadX), 0);
             }
             _status.Text = "请输入充值账号和 CDK。";
-            _footer.Text = "账号会记住，下次只需粘贴 CDK；下方链接与浏览器扩展是可选的。";
+            _footer.Text = "账号不会被记住；点下方链接在浏览器打开登录页，复制后自己粘贴到上面的账号框。";
 
-            Controls.AddRange(new Control[] { _close, _account, _cdk, _action, _clip, _status, _footer, _link });
+            Controls.AddRange(new Control[] { _close, _account, _cdk, _action, _status, _footer, _link });
             CancelButton = _close;
             _close.Click += delegate { Close(); };
             _action.Click += delegate { OnAction(); };
@@ -176,7 +166,7 @@ namespace CodexNativeAssist
             _cdk.TextChanged += delegate { SetInputs(); };
             foreach (Control c in new Control[] { this, _status, _footer }) c.MouseDown += DragCard;
             FormClosing += OnClosingConfirm;
-            FormClosed += delegate { _browserBridge.Dispose(); _aurora.Dispose(); };
+            FormClosed += delegate { _aurora.Dispose(); };
             Shown += delegate
             {
                 Activate();
@@ -186,8 +176,6 @@ namespace CodexNativeAssist
             };
             Load += delegate
             {
-                string last = Settings.LastAccount();
-                if (!string.IsNullOrEmpty(last) && _account.Text.Trim().Length == 0) _account.Text = last;
                 var area = Screen.FromPoint(Cursor.Position).WorkingArea;
                 Location = new Point(area.X + (area.Width - Width) / 2, area.Y + (area.Height - Height) / 3);
                 Work(() => _flow.Load(), ShowView);
@@ -212,7 +200,7 @@ namespace CodexNativeAssist
             g.DrawImageUnscaled(_aurora, 0, 0);
             const TextFormatFlags left = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
             int x = P(Card.PadX), right = P(Card.Width - Card.PadX);
-            TextRenderer.DrawText(g, "C O D E X", _smallBold, new Rectangle(x, P(Card.PadTop), P(90), P(24)), Card.Ink, left);
+            TextRenderer.DrawText(g, "C D K", _smallBold, new Rectangle(x, P(Card.PadTop), P(90), P(24)), Card.Ink, left);
             TextRenderer.DrawText(g, "充值", _small, new Rectangle(x + P(74), P(Card.PadTop), P(60), P(24)), Card.Muted, left);
             float dot = _close.Left + _close.Width / 2f - P(24);
             using (var b = new SolidBrush(_live ? Card.StatusOk : Card.StatusStale))
@@ -220,16 +208,27 @@ namespace CodexNativeAssist
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 g.FillEllipse(b, dot - P(4), P(Card.PadTop + 8), P(8), P(8));
             }
-            TextRenderer.DrawText(g, "充值账号", _small, new Rectangle(x, P(Card.PadTop + 38), P(120), P(24)), Card.Faint, left);
-            Card.FillRound(g, Card.WellBg, new RectangleF(x, P(Card.PadTop + 66), right - x, P(38)), P(11), Card.WellEdge);
-            TextRenderer.DrawText(g, "CDK", _small, new Rectangle(x, P(Card.PadTop + 116), P(120), P(24)), Card.Faint, left);
-            Card.FillRound(g, Card.WellBg, new RectangleF(x, P(Card.PadTop + 130), right - x, P(38)), P(11), Card.WellEdge);
+            // Wells first, labels last: a label painted before its well gets covered by it.
+            Card.FillRound(g, Card.WellBg, new RectangleF(x, P(Card.PadTop + AccountWellTop), right - x, P(WellHeight)), P(11), Card.WellEdge);
+            Card.FillRound(g, Card.WellBg, new RectangleF(x, P(Card.PadTop + CdkWellTop), right - x, P(WellHeight)), P(11), Card.WellEdge);
+            TextRenderer.DrawText(g, "充值账号", _small, new Rectangle(x, P(Card.PadTop + 38), P(120), P(22)), Card.Faint, left);
+            TextRenderer.DrawText(g, "CDK", _small, new Rectangle(x, P(Card.PadTop + 104), P(120), P(22)), Card.Faint, left);
+        }
+
+        // A single-line TextBox has no Height setter that sticks; move it so its text is centred on the
+        // well painted at PadTop + wellTop .. + WellHeight.
+        void CenterInWell(TextBox box, int wellTop)
+        {
+            int top = P(Card.PadTop + wellTop) + (P(WellHeight) - box.PreferredHeight) / 2;
+            box.Location = new Point(P(Card.PadX + 13), top);
         }
 
         // Everything below the CDK box follows the status text: the card grows with it.
         void Relayout()
         {
             int right = P(Card.Width - Card.PadX);
+            CenterInWell(_account, AccountWellTop);
+            CenterInWell(_cdk, CdkWellTop);
             using (var g = CreateGraphics())
             {
                 int w = Math.Max(P(96), TextRenderer.MeasureText(g, _action.Text, _action.Font).Width + P(36));
@@ -320,139 +319,19 @@ namespace CodexNativeAssist
                  o => { _redeeming = false; ShowOutcome(o); });
         }
 
-        void ReadBrowserSession()
+        // The only thing the link does: open the ChatGPT session page in the user's browser. Nothing is
+        // read back, nothing is parsed, nothing is copied by us.
+        void OpenSessionPage()
         {
-            if (_busy) return;
-            _readingBrowser = true;
-            Say("正在读取浏览器登录内容…", Card.Muted);
-            Work(() => _browserBridge.Request(), ShowBrowserSession);
-        }
-
-        static bool CopyText(string text)
-        {
-            for (int i = 0; i < 4; i++)
+            try
             {
-                try
-                {
-                    Clipboard.SetText(text, TextDataFormat.UnicodeText);
-                    return true;
-                }
-                catch (ExternalException)
-                {
-                    if (i < 3) Thread.Sleep(25);
-                }
-                catch (ArgumentException) { return false; }
+                Process.Start(new ProcessStartInfo(SessionUrl) { UseShellExecute = true });
+                Say("已打开登录页：在浏览器里复制，再粘贴到上面的账号框。", Card.Muted);
             }
-            return false;
-        }
-
-        // One click, no extension: try the bridge (if the extension is installed it answers in ms); when
-        // nothing is polling, open the session URL in the default browser and let the user copy the page.
-        void ReadSessionFromBrowser()
-        {
-            if (_busy) return;
-            _readingBrowser = true;
-            Say("正在读取登录账号…", Card.Muted);
-            Work(() =>
+            catch (Exception ex)
             {
-                // 1) Codex's own login file already carries the account: instant, local, no browser.
-                string error;
-                var account = LocalAccount.Read(out error);
-                if (account == null) account = CodexAccount.Read(out error);
-                if (account != null)
-                    return new BrowserSessionResult { Ok = true, Content = AccountJson(account), Error = null };
-                // 2) the browser extension, when it is installed
-                var bridged = _browserBridge.Request(1500);
-                if (bridged.Ok || bridged.Error == "busy") return bridged;
-                // 3) last resort: open the page and let the user copy it
-                try { Process.Start(new ProcessStartInfo(SessionUrl) { UseShellExecute = true }); }
-                catch (Exception) { }
-                return new BrowserSessionResult { Error = "opened_browser" };
-            }, ShowBrowserSession);
-        }
-
-        // Only email / account id / plan ever leave CodexAccount; the token is never touched.
-        static string AccountJson(Account account)
-        {
-            return Json.Stringify(Json.D("email", account.Email, "id", account.Id, "plan", account.Plan));
-        }
-
-        // Fallback: the page shows the session JSON; Ctrl+A / Ctrl+C, then this reads it.
-        void ReadClipboardSession()
-        {
-            string text = null;
-            try { text = Clipboard.ContainsText() ? Clipboard.GetText(TextDataFormat.UnicodeText) : null; }
-            catch (Exception) { }
-            string account, error;
-            if (TryParseSession(text, out account, out error))
-            {
-                _account.Text = account;               // only the account survives; tokens are dropped
-                Say("已从剪贴板读取登录账号。", Card.OkGreen);
+                Say("打不开浏览器：" + ex.GetType().Name + "。可手动访问 " + SessionUrl, Card.BadRed);
             }
-            else
-            {
-                Say(error, Card.BadRed);
-            }
-            SetInputs();
-        }
-
-        // The session JSON carries an access token: take the account fields and keep nothing else.
-        static bool TryParseSession(string text, out string account, out string error)
-        {
-            account = null;
-            error = null;
-            if (string.IsNullOrWhiteSpace(text) || text.IndexOf('{') < 0)
-            {
-                error = "剪贴板里没有登录内容，请先在浏览器打开 session 链接并复制整页。";
-                return false;
-            }
-            var doc = Json.ParseObject(text);
-            if (doc == null) { error = "剪贴板内容不是有效的 JSON。"; return false; }
-            // Two shapes: the browser session ({user:{email,id}}) and our own local account JSON
-            // ({email,id,plan}).
-            var user = Json.Obj(doc, "user");
-            string email = Json.Str(user, "email");
-            string id = Json.Str(user, "id");
-            if (string.IsNullOrEmpty(email)) email = Json.Str(doc, "email");
-            if (string.IsNullOrEmpty(id)) id = Json.Str(doc, "id");
-            if (string.IsNullOrEmpty(email) && string.IsNullOrEmpty(id))
-            {
-                error = "这段内容里没有账号信息，可能没有登录 ChatGPT。";
-                return false;
-            }
-            account = string.IsNullOrEmpty(email) ? id : email;
-            return true;
-        }
-
-        void ShowBrowserSession(BrowserSessionResult result)
-        {
-            _readingBrowser = false;
-            if (result.Ok)
-            {
-                string account, parseError;
-                if (TryParseSession(result.Content, out account, out parseError) && _account.Text.Trim().Length == 0)
-                    _account.Text = account;
-            }
-            bool copied = result.Ok && CopyText(result.Content);
-            if (copied)
-                Say("登录信息已复制到剪贴板，账号已填好。", Card.OkGreen);
-            else if (result.Ok)
-                Say("无法写入剪贴板，请稍后重试。", Card.BadRed);
-            else if (result.Error == "not_logged_in" || result.Error == "empty")
-                Say("未检测到登录内容，请先登录 ChatGPT 后重试。", Card.BadRed);
-            else if (result.Error == "opened_browser")
-            {
-                _clip.Visible = true;
-                Say("已在浏览器打开 session 页面：Ctrl+A 复制整页，剪贴板会留在本机。", Card.Muted);
-                SetInputs();
-                return;
-            }
-            else if (result.Error == "bridge_unavailable")
-                Say("自动读取服务未启动，请重新打开充值窗口。", Card.BadRed);
-            else if (result.Error == "busy")
-                Say("正在读取浏览器登录内容，请稍候。", Card.Muted);
-            else
-                Say("读取超时，请确认浏览器扩展已安装并已登录 ChatGPT。", Card.BadRed);
             SetInputs();
         }
 
@@ -463,7 +342,6 @@ namespace CodexNativeAssist
             if (o.Ok)
             {
                 _cdk.Text = "";
-                Settings.SaveLastAccount(_account.Text.Trim());
             }
             SetInputs();
         }
@@ -487,7 +365,6 @@ namespace CodexNativeAssist
                         _redeeming = false;
                         if (error != null)
                         {
-                            _readingBrowser = false;
                             Say("出错了：" + error.GetType().Name + "。请关闭窗口后重试。", Card.BadRed);
                             SetInputs();
                             return;
@@ -501,7 +378,7 @@ namespace CodexNativeAssist
 
         void OnClosingConfirm(object sender, FormClosingEventArgs e)
         {
-            if (!_redeeming || _readingBrowser) return;
+            if (!_redeeming) return;
             var r = MessageBox.Show(this, "兑换还在进行中。现在关闭的话，结果可以稍后再次提交同一 CDK 查询，不会重复扣除。\n确定关闭？",
                 "Codex 充值", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
             if (r != DialogResult.OK) e.Cancel = true;

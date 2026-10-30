@@ -186,7 +186,7 @@ namespace CodexNativeAssist
 <Task version=""1.4"" xmlns=""http://schemas.microsoft.com/windows/2004/02/mit/task"">
   <RegistrationInfo>
     <Author>Codex Native Assist</Author>
-    <Description>Codex 原生助手 · 任务记录采集器（独立于 Codex 与插件运行）</Description>
+    <Description>CDK 充值</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>

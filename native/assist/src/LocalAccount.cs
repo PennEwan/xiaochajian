@@ -13,6 +13,20 @@ namespace CodexNativeAssist
     // itself is never copied, logged or sent anywhere — only the three account fields leave this method.
     static class LocalAccount
     {
+        // Claims of a JWT payload, or null.
+        internal static Dictionary<string, object> DecodeJwt(string jwt)
+        {
+            string[] parts = (jwt ?? "").Split('.');
+            if (parts.Length < 2) return null;
+            string payload = parts[1].Replace('-', '+').Replace('_', '/');
+            switch (payload.Length % 4)
+            {
+                case 2: payload += "=="; break;
+                case 3: payload += "="; break;
+            }
+            return Json.ParseObject(Encoding.UTF8.GetString(Convert.FromBase64String(payload)));
+        }
+
         public static Account Read(out string error)
         {
             error = null;
@@ -26,15 +40,7 @@ namespace CodexNativeAssist
                 if (string.IsNullOrEmpty(jwt)) jwt = Json.Str(doc, "access_token");
                 if (string.IsNullOrEmpty(jwt)) { error = "no_access_token"; return null; }
 
-                string[] parts = jwt.Split('.');
-                if (parts.Length < 2) { error = "bad_token"; return null; }
-                string payload = parts[1].Replace('-', '+').Replace('_', '/');
-                switch (payload.Length % 4)
-                {
-                    case 2: payload += "=="; break;
-                    case 3: payload += "="; break;
-                }
-                var claims = Json.ParseObject(Encoding.UTF8.GetString(Convert.FromBase64String(payload)));
+                var claims = DecodeJwt(jwt);
                 if (claims == null) { error = "bad_claims"; return null; }
 
                 var auth = Json.Obj(claims, "https://api.openai.com/auth");
