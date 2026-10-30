@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -20,6 +21,7 @@ namespace CodexNativeAssist
         readonly LinkLabel _link = new LinkLabel();
         readonly TextBox _cdk = new TextBox();
         readonly PillButton _action = new PillButton(), _close = new PillButton();
+        readonly PillButton _clip = new PillButton();
         readonly BrowserSessionBridge _browserBridge;
         readonly float _s;
         readonly Bitmap _aurora;
@@ -133,6 +135,14 @@ namespace CodexNativeAssist
             _cdk.Location = new Point(P(Card.PadX + 13), P(Card.PadTop + 149) - _cdk.PreferredHeight / 2);
             _cdk.Width = P(Card.Width - 2 * Card.PadX - 26);
 
+            _clip.Text = "从剪贴板读取";
+            _clip.Fill = Color.White;
+            _clip.Hot = Color.FromArgb(236, 242, 248);
+            _clip.InkColor = Card.Ink;
+            _clip.Font = _small;
+            _clip.TabStop = false;
+            _clip.Visible = false;
+            _clip.Click += delegate { ReadClipboardSession(); };
             _action.Font = new Font(Card.Family, 10f, FontStyle.Bold);
             _action.Text = ReloadText;
 
@@ -147,7 +157,7 @@ namespace CodexNativeAssist
             _link.ActiveLinkColor = Card.BlueHot;
             _link.VisitedLinkColor = Card.Blue;
             _link.LinkArea = new LinkArea(0, _link.Text.Length);
-            _link.LinkClicked += delegate { ReadBrowserSession(); };
+            _link.LinkClicked += delegate { ReadSessionFromBrowser(); };
             foreach (var l in new[] { _status, _footer })
             {
                 l.AutoSize = true;
@@ -156,7 +166,7 @@ namespace CodexNativeAssist
             _status.Text = "请输入充值账号和 CDK。";
             _footer.Text = "账号会记住，下次只需粘贴 CDK；下方链接与浏览器扩展是可选的。";
 
-            Controls.AddRange(new Control[] { _close, _account, _cdk, _action, _status, _footer, _link });
+            Controls.AddRange(new Control[] { _close, _account, _cdk, _action, _clip, _status, _footer, _link });
             CancelButton = _close;
             _close.Click += delegate { Close(); };
             _action.Click += delegate { OnAction(); };
@@ -336,6 +346,66 @@ namespace CodexNativeAssist
             return false;
         }
 
+        // One click, no extension: try the bridge (if the extension is installed it answers in ms); when
+        // nothing is polling, open the session URL in the default browser and let the user copy the page.
+        void ReadSessionFromBrowser()
+        {
+            if (_busy) return;
+            _readingBrowser = true;
+            Say("正在请求浏览器登录内容…（未装扩展会自动打开浏览器）", Card.Muted);
+            Work(() =>
+            {
+                var result = _browserBridge.Request(2500);
+                if (result.Ok || result.Error != "timeout") return result;
+                try { Process.Start(new ProcessStartInfo(SessionUrl) { UseShellExecute = true }); }
+                catch (Exception) { }
+                return new BrowserSessionResult { Error = "opened_browser" };
+            }, ShowBrowserSession);
+        }
+
+        // Fallback: the page shows the session JSON; Ctrl+A / Ctrl+C, then this reads it.
+        void ReadClipboardSession()
+        {
+            string text = null;
+            try { text = Clipboard.ContainsText() ? Clipboard.GetText(TextDataFormat.UnicodeText) : null; }
+            catch (Exception) { }
+            string account, error;
+            if (TryParseSession(text, out account, out error))
+            {
+                _account.Text = account;               // only the account survives; tokens are dropped
+                Say("已从剪贴板读取登录账号。", Card.OkGreen);
+            }
+            else
+            {
+                Say(error, Card.BadRed);
+            }
+            SetInputs();
+        }
+
+        // The session JSON carries an access token: take the account fields and keep nothing else.
+        static bool TryParseSession(string text, out string account, out string error)
+        {
+            account = null;
+            error = null;
+            if (string.IsNullOrWhiteSpace(text) || text.IndexOf('{') < 0)
+            {
+                error = "剪贴板里没有登录内容，请先在浏览器打开 session 链接并复制整页。";
+                return false;
+            }
+            var doc = Json.ParseObject(text);
+            if (doc == null) { error = "剪贴板内容不是有效的 JSON。"; return false; }
+            var user = Json.Obj(doc, "user");
+            string email = Json.Str(user, "email");
+            string id = Json.Str(user, "id");
+            if (string.IsNullOrEmpty(email) && string.IsNullOrEmpty(id))
+            {
+                error = "这段内容里没有账号信息，可能没有登录 ChatGPT。";
+                return false;
+            }
+            account = string.IsNullOrEmpty(email) ? id : email;
+            return true;
+        }
+
         void ShowBrowserSession(BrowserSessionResult result)
         {
             _readingBrowser = false;
@@ -346,6 +416,13 @@ namespace CodexNativeAssist
                 Say("无法写入剪贴板，请稍后重试。", Card.BadRed);
             else if (result.Error == "not_logged_in" || result.Error == "empty")
                 Say("未检测到登录内容，请先登录 ChatGPT 后重试。", Card.BadRed);
+            else if (result.Error == "opened_browser")
+            {
+                _clip.Visible = true;
+                Say("已在浏览器打开 session 页面：Ctrl+A 复制整页，剪贴板会留在本机。", Card.Muted);
+                SetInputs();
+                return;
+            }
             else if (result.Error == "bridge_unavailable")
                 Say("自动读取服务未启动，请重新打开充值窗口。", Card.BadRed);
             else if (result.Error == "busy")

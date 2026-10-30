@@ -15,7 +15,7 @@ namespace CodexNativeAssist
 {
     static class Program
     {
-        public const string Version = "0.3.9";
+        public const string Version = "0.4.0";
 
         [DllImport("user32.dll")]
         static extern bool SetProcessDPIAware();

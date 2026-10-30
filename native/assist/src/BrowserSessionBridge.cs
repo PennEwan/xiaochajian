@@ -58,7 +58,7 @@ namespace CodexNativeAssist
         }
 
         // Called by the window when the user clicks the session link: blocks until the extension answers.
-        public BrowserSessionResult Request()
+        public BrowserSessionResult Request(int timeoutMs = ResultTimeoutMs)
         {
             if (_listener == null) return new BrowserSessionResult { Error = "bridge_unavailable" };
             string id = Guid.NewGuid().ToString("N");
@@ -72,7 +72,7 @@ namespace CodexNativeAssist
             }
             _done.Reset();
             Log.Lifecycle("browser_bridge", Json.D("event", "request", "id", id));
-            if (!_done.Wait(ResultTimeoutMs))
+            if (!_done.Wait(timeoutMs))
             {
                 lock (_gate) { _requestId = null; _nonce = null; }
                 Log.Lifecycle("browser_bridge", Json.D("event", "timeout", "id", id));
