@@ -15,7 +15,7 @@ namespace CodexNativeAssist
 {
     static class Program
     {
-        public const string Version = "0.4.0";
+        public const string Version = "0.4.1";
 
         [DllImport("user32.dll")]
         static extern bool SetProcessDPIAware();
@@ -90,6 +90,19 @@ namespace CodexNativeAssist
                     case "daemon-status":
                         Cli.WriteLine(Json.Stringify(Daemon.Status()));
                         return 0;
+                    case "account":
+                        string accountError;
+                        var account = LocalAccount.Read(out accountError);
+                        if (account == null)
+                        {
+                            string appServerError;
+                            account = CodexAccount.Read(out appServerError);
+                            if (account == null) accountError = accountError + "/" + appServerError;
+                        }
+                        Cli.WriteLine(Json.Stringify(account == null
+                            ? Json.D("ok", false, "error", accountError)
+                            : Json.D("ok", true, "email", account.Email, "id", account.Id, "plan", account.Plan)));
+                        return account == null ? 1 : 0;
                     case "collect-once":
                         // Any first touch applies the install default (once per data store).
                         try { Consent.ApplyInstallDefault(); } catch (Exception) { }

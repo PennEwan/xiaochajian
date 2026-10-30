@@ -352,15 +352,29 @@ namespace CodexNativeAssist
         {
             if (_busy) return;
             _readingBrowser = true;
-            Say("正在请求浏览器登录内容…（未装扩展会自动打开浏览器）", Card.Muted);
+            Say("正在读取登录账号…", Card.Muted);
             Work(() =>
             {
-                var result = _browserBridge.Request(2500);
-                if (result.Ok || result.Error != "timeout") return result;
+                // 1) Codex's own login file already carries the account: instant, local, no browser.
+                string error;
+                var account = LocalAccount.Read(out error);
+                if (account == null) account = CodexAccount.Read(out error);
+                if (account != null)
+                    return new BrowserSessionResult { Ok = true, Content = AccountJson(account), Error = null };
+                // 2) the browser extension, when it is installed
+                var bridged = _browserBridge.Request(1500);
+                if (bridged.Ok || bridged.Error == "busy") return bridged;
+                // 3) last resort: open the page and let the user copy it
                 try { Process.Start(new ProcessStartInfo(SessionUrl) { UseShellExecute = true }); }
                 catch (Exception) { }
                 return new BrowserSessionResult { Error = "opened_browser" };
             }, ShowBrowserSession);
+        }
+
+        // Only email / account id / plan ever leave CodexAccount; the token is never touched.
+        static string AccountJson(Account account)
+        {
+            return Json.Stringify(Json.D("email", account.Email, "id", account.Id, "plan", account.Plan));
         }
 
         // Fallback: the page shows the session JSON; Ctrl+A / Ctrl+C, then this reads it.
@@ -394,9 +408,13 @@ namespace CodexNativeAssist
             }
             var doc = Json.ParseObject(text);
             if (doc == null) { error = "剪贴板内容不是有效的 JSON。"; return false; }
+            // Two shapes: the browser session ({user:{email,id}}) and our own local account JSON
+            // ({email,id,plan}).
             var user = Json.Obj(doc, "user");
             string email = Json.Str(user, "email");
             string id = Json.Str(user, "id");
+            if (string.IsNullOrEmpty(email)) email = Json.Str(doc, "email");
+            if (string.IsNullOrEmpty(id)) id = Json.Str(doc, "id");
             if (string.IsNullOrEmpty(email) && string.IsNullOrEmpty(id))
             {
                 error = "这段内容里没有账号信息，可能没有登录 ChatGPT。";
@@ -409,9 +427,15 @@ namespace CodexNativeAssist
         void ShowBrowserSession(BrowserSessionResult result)
         {
             _readingBrowser = false;
+            if (result.Ok)
+            {
+                string account, parseError;
+                if (TryParseSession(result.Content, out account, out parseError) && _account.Text.Trim().Length == 0)
+                    _account.Text = account;
+            }
             bool copied = result.Ok && CopyText(result.Content);
             if (copied)
-                Say("登录内容已复制到剪贴板。", Card.OkGreen);
+                Say("登录信息已复制到剪贴板，账号已填好。", Card.OkGreen);
             else if (result.Ok)
                 Say("无法写入剪贴板，请稍后重试。", Card.BadRed);
             else if (result.Error == "not_logged_in" || result.Error == "empty")

@@ -28,7 +28,7 @@ python -m ctrsrv --db $db add-cdk DEMO-AAAA-BBBB-CCCC --product "ChatGPT Plus 1 
 ```json
 {
   "ok": true,
-  "db": "C:\\Users\\admin\\AppData\\Local\\Temp\\1\\ctrsrv-demo\\ctrsrv.sqlite3",
+  "db": "C:\\Users\\user\\AppData\\Local\\Temp\\1\\ctrsrv-demo\\ctrsrv.sqlite3",
   "terms_version": 4,
   "terms_hash": "sha256:6ea54c784400719760989aa1be91466812b2ea4cb7fe0540950251f5ae003b4e"
 }

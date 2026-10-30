@@ -10,7 +10,7 @@ from cdkr import cli, config
 
 # Trimmed real output of `codex plugin list` (App kernel 0.163.0-alpha.10.2).
 LISTING = """Marketplace `openai-bundled`
-C:\\Users\\admin\\.codex\\.tmp\\bundled-marketplaces\\openai-bundled\\.agents\\plugins\\marketplace.json
+C:\\Users\\user\\.codex\\.tmp\\bundled-marketplaces\\openai-bundled\\.agents\\plugins\\marketplace.json
 
 PLUGIN                               STATUS              VERSION        SOURCE
 browser@openai-bundled               installed, enabled  26.1013.40934  C:\\x
